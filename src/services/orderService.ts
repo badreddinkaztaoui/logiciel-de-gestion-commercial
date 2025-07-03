@@ -136,7 +136,7 @@ class OrderService {
       const { data, error } = await supabase
         .from(this.TABLE_NAME)
         .upsert(filteredOrder, {
-          onConflict: 'id',
+          onConflict: 'id,user_id',
           ignoreDuplicates: false
         })
         .select()
@@ -156,12 +156,13 @@ class OrderService {
 
   async deleteOrder(orderId: number): Promise<void> {
     try {
-      await this.ensureAuthenticated();
+      const userId = await this.ensureAuthenticated();
 
       const { error } = await supabase
         .from(this.TABLE_NAME)
         .delete()
-        .eq('id', orderId);
+        .eq('id', orderId)
+        .eq('user_id', userId);
 
       if (error) {
         console.error('Error deleting order:', error);
@@ -230,49 +231,44 @@ class OrderService {
 
       const userId = await this.ensureAuthenticated();
 
-      const { data: existingOrderIds, error: idsError } = await supabase
-        .from(this.TABLE_NAME)
-        .select('id');
+      // Import customers from orders first
+      const customerResults = await customerService.importCustomersFromOrders(newOrders);
+      console.log('Customers imported:', customerResults.importedCount, 'updated:', customerResults.updatedCount, 'skipped:', customerResults.skippedCount);
 
-      if (idsError) {
-        console.error('Error fetching existing order IDs:', idsError);
-        throw idsError;
-      }
-
-      const existingIds = new Set((existingOrderIds || []).map(row => row.id));
-      let newOrdersCount = 0;
-
-      newOrders.forEach(order => {
-        if (!existingIds.has(order.id)) {
-          newOrdersCount++;
-        }
-      });
-
-      console.log('Importing customers from orders...');
-      const customerImportResult = await customerService.importCustomersFromOrders(newOrders);
-      console.log(`Customers imported: ${customerImportResult.importedCount}, updated: ${customerImportResult.updatedCount}, skipped: ${customerImportResult.skippedCount}`);
-
-      const filteredOrders = await Promise.all(
+      // Filter and prepare orders for database
+      const ordersToUpsert = await Promise.all(
         newOrders.map(order => this.filterOrderForDatabase(order, userId))
       );
 
-      const { error: upsertError } = await supabase
+      // Upsert orders with composite key conflict resolution
+      const { data: upsertedOrders, error: upsertError } = await supabase
         .from(this.TABLE_NAME)
-        .upsert(filteredOrders, {
-          onConflict: 'id',
+        .upsert(ordersToUpsert, {
+          onConflict: 'id,user_id',
           ignoreDuplicates: false
-        });
+        })
+        .select();
 
       if (upsertError) {
         console.error('Error upserting orders:', upsertError);
         throw upsertError;
       }
 
-      const mergedOrders = await this.getOrders();
+      // Get all orders after merge
+      const { data: allOrders, error: fetchError } = await supabase
+        .from(this.TABLE_NAME)
+        .select('*')
+        .order('date_created', { ascending: false });
 
-      console.log(`✅ Orders stored directly to Supabase: ${newOrders.length} processed, ${newOrdersCount} truly new`);
+      if (fetchError) {
+        console.error('Error fetching merged orders:', fetchError);
+        throw fetchError;
+      }
 
-      return { mergedOrders, newOrdersCount };
+      return {
+        mergedOrders: allOrders as WooCommerceOrder[],
+        newOrdersCount: ordersToUpsert.length
+      };
     } catch (error) {
       console.error('Failed to merge orders:', error);
       throw error;

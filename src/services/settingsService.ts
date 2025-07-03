@@ -50,9 +50,6 @@ export interface TemplateSettings {
 }
 
 export interface WooCommerceSettings {
-  apiUrl: string;
-  consumerKey: string;
-  consumerSecret: string;
   autoSync: boolean;
   syncInterval: number;
   updateOrderStatus: boolean;
@@ -191,9 +188,6 @@ class SettingsService {
       showRegistrationNumber: false
     },
     woocommerce: {
-      apiUrl: 'https://gepronet.ma/wp-json/wc/v3',
-      consumerKey: 'ck_3763e8f7e25f5ec9770667f37c99aed87cfa28a0',
-      consumerSecret: 'cs_d8646d96c29b7ac08487aed2429030cfb2eb61d2',
       autoSync: true,
       syncInterval: 5,
       updateOrderStatus: true,

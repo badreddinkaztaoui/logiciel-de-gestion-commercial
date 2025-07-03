@@ -90,19 +90,34 @@ class WooCommerceService {
   private productsCache: Map<number, WooCommerceProduct> = new Map();
 
   private getAuthHeader(): string {
+    const consumerKey = import.meta.env.VITE_WC_CONSUMER_KEY;
+    const consumerSecret = import.meta.env.VITE_WC_CONSUMER_SECRET;
+
+    if (!consumerKey || !consumerSecret) {
+      throw new Error('WooCommerce credentials not found in environment variables');
+    }
+
     try {
-      const credentials = btoa(`${import.meta.env.VITE_WC_CONSUMER_KEY}:${import.meta.env.VITE_WC_CONSUMER_SECRET}`);
+      const credentials = btoa(`${consumerKey}:${consumerSecret}`);
       return `Basic ${credentials}`;
     } catch (error) {
       console.error('Error creating auth header:', error);
-      const buffer = Buffer.from(`${import.meta.env.VITE_WC_CONSUMER_KEY}:${import.meta.env.VITE_WC_CONSUMER_SECRET}`);
+      const buffer = Buffer.from(`${consumerKey}:${consumerSecret}`);
       return `Basic ${buffer.toString('base64')}`;
     }
   }
 
+  private getApiUrl(): string {
+    const apiUrl = import.meta.env.VITE_WC_API_URL;
+    if (!apiUrl) {
+      throw new Error('WooCommerce API URL not found in environment variables');
+    }
+    return apiUrl;
+  }
+
   async fetchTaxClasses(): Promise<WooCommerceTaxClass[]> {
     try {
-      const response = await fetch(`${import.meta.env.VITE_WC_API_URL}/taxes/classes`, {
+      const response = await fetch(`${this.getApiUrl()}/taxes/classes`, {
         headers: {
           'Authorization': this.getAuthHeader(),
           'Content-Type': 'application/json',
@@ -130,7 +145,7 @@ class WooCommerceService {
 
   async fetchTaxRates(): Promise<WooCommerceTaxRate[]> {
     try {
-      const response = await fetch(`${import.meta.env.VITE_WC_API_URL}/taxes?per_page=100`, {
+      const response = await fetch(`${this.getApiUrl()}/taxes?per_page=100`, {
         headers: {
           'Authorization': this.getAuthHeader(),
           'Content-Type': 'application/json',
@@ -308,7 +323,7 @@ class WooCommerceService {
         return this.productsCache.get(productId)!.tax_class || '';
       }
 
-      const response = await fetch(`${import.meta.env.VITE_WC_API_URL}/products/${productId}`, {
+      const response = await fetch(`${this.getApiUrl()}/products/${productId}`, {
         headers: {
           'Authorization': this.getAuthHeader(),
           'Content-Type': 'application/json',
@@ -505,7 +520,7 @@ class WooCommerceService {
 
       searchParams.append('context', 'edit');
 
-      const response = await fetch(`${import.meta.env.VITE_WC_API_URL}/orders?${searchParams}`, {
+      const response = await fetch(`${this.getApiUrl()}/orders?${searchParams}`, {
         headers: {
           'Authorization': this.getAuthHeader(),
           'Content-Type': 'application/json',
@@ -534,7 +549,7 @@ class WooCommerceService {
         await this.initializeTaxData();
       }
 
-      const response = await fetch(`${import.meta.env.VITE_WC_API_URL}/orders/${orderId}?context=edit`, {
+      const response = await fetch(`${this.getApiUrl()}/orders/${orderId}?context=edit`, {
         headers: {
           'Authorization': this.getAuthHeader(),
           'Content-Type': 'application/json',
@@ -555,7 +570,7 @@ class WooCommerceService {
 
   async updateOrderStatus(orderId: number, status: string) {
     try {
-      const response = await fetch(`${import.meta.env.VITE_WC_API_URL}/orders/${orderId}`, {
+      const response = await fetch(`${this.getApiUrl()}/orders/${orderId}`, {
         method: 'PUT',
         headers: {
           'Authorization': this.getAuthHeader(),
@@ -578,7 +593,7 @@ class WooCommerceService {
 
   async addOrderNote(orderId: number, note: string, customerNote: boolean = false) {
     try {
-      const response = await fetch(`${import.meta.env.VITE_WC_API_URL}/orders/${orderId}/notes`, {
+      const response = await fetch(`${this.getApiUrl()}/orders/${orderId}/notes`, {
         method: 'POST',
         headers: {
           'Authorization': this.getAuthHeader(),
@@ -612,7 +627,7 @@ class WooCommerceService {
         refundData.line_items = lineItems;
       }
 
-      const response = await fetch(`${import.meta.env.VITE_WC_API_URL}/orders/${orderId}/refunds`, {
+      const response = await fetch(`${this.getApiUrl()}/orders/${orderId}/refunds`, {
         method: 'POST',
         headers: {
           'Authorization': this.getAuthHeader(),
@@ -649,7 +664,7 @@ class WooCommerceService {
       if (params?.orderby) searchParams.append('orderby', params.orderby);
       if (params?.order) searchParams.append('order', params.order);
 
-      const response = await fetch(`${import.meta.env.VITE_WC_API_URL}/customers?${searchParams}`, {
+      const response = await fetch(`${this.getApiUrl()}/customers?${searchParams}`, {
         headers: {
           'Authorization': this.getAuthHeader(),
           'Content-Type': 'application/json',
@@ -671,7 +686,7 @@ class WooCommerceService {
 
   async fetchCustomer(customerId: number): Promise<WooCommerceCustomer> {
     try {
-      const response = await fetch(`${import.meta.env.VITE_WC_API_URL}/customers/${customerId}`, {
+      const response = await fetch(`${this.getApiUrl()}/customers/${customerId}`, {
         headers: {
           'Authorization': this.getAuthHeader(),
           'Content-Type': 'application/json',
@@ -720,7 +735,7 @@ class WooCommerceService {
     };
   }): Promise<WooCommerceCustomer> {
     try {
-      const response = await fetch(`${import.meta.env.VITE_WC_API_URL}/customers`, {
+      const response = await fetch(`${this.getApiUrl()}/customers`, {
         method: 'POST',
         headers: {
           'Authorization': this.getAuthHeader(),
@@ -752,7 +767,7 @@ class WooCommerceService {
 
   async updateCustomer(customerId: number, customerData: Partial<WooCommerceCustomer>): Promise<WooCommerceCustomer> {
     try {
-      const response = await fetch(`${import.meta.env.VITE_WC_API_URL}/customers/${customerId}`, {
+      const response = await fetch(`${this.getApiUrl()}/customers/${customerId}`, {
         method: 'PUT',
         headers: {
           'Authorization': this.getAuthHeader(),
@@ -791,7 +806,7 @@ class WooCommerceService {
       if (params?.status) searchParams.append('status', params.status);
       if (params?.stock_status) searchParams.append('stock_status', params.stock_status);
 
-      const response = await fetch(`${import.meta.env.VITE_WC_API_URL}/products?${searchParams}`, {
+      const response = await fetch(`${this.getApiUrl()}/products?${searchParams}`, {
         headers: {
           'Authorization': this.getAuthHeader(),
           'Content-Type': 'application/json',
@@ -811,7 +826,7 @@ class WooCommerceService {
 
   async getProduct(productId: number): Promise<WooCommerceProduct> {
     try {
-      const response = await fetch(`${import.meta.env.VITE_WC_API_URL}/products/${productId}`, {
+      const response = await fetch(`${this.getApiUrl()}/products/${productId}`, {
         headers: {
           'Authorization': this.getAuthHeader(),
           'Content-Type': 'application/json',
@@ -831,7 +846,7 @@ class WooCommerceService {
 
   async updateProductStock(productId: number, quantity: number): Promise<WooCommerceProduct> {
     try {
-      const response = await fetch(`${import.meta.env.VITE_WC_API_URL}/products/${productId}`, {
+      const response = await fetch(`${this.getApiUrl()}/products/${productId}`, {
         method: 'PUT',
         headers: {
           'Authorization': this.getAuthHeader(),

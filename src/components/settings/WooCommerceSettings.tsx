@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Globe, Key, Settings as SettingsIcon, Eye, EyeOff, CheckCircle, AlertCircle, Zap } from 'lucide-react';
+import { Globe, Settings as SettingsIcon, CheckCircle, AlertCircle, Zap } from 'lucide-react';
 import { WooCommerceSettings as IWooCommerceSettings } from '../../services/settingsService';
+import { wooCommerceService } from '../../services/woocommerce';
 
 interface WooCommerceSettingsProps {
   settings: IWooCommerceSettings;
@@ -8,7 +9,6 @@ interface WooCommerceSettingsProps {
 }
 
 const WooCommerceSettings: React.FC<WooCommerceSettingsProps> = ({ settings, onUpdate }) => {
-  const [showSecret, setShowSecret] = useState(false);
   const [testingConnection, setTestingConnection] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
@@ -21,20 +21,16 @@ const WooCommerceSettings: React.FC<WooCommerceSettingsProps> = ({ settings, onU
     setConnectionStatus('idle');
 
     try {
-      // Simuler un test de connexion
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      // Ici, vous pouvez ajouter la logique de test réel
+      // Test the connection using the wooCommerceService
+      await wooCommerceService.fetchTaxClasses();
       setConnectionStatus('success');
     } catch (error) {
+      console.error('Connection test failed:', error);
       setConnectionStatus('error');
     } finally {
       setTestingConnection(false);
     }
   };
-
-  const maskedSecret = settings.consumerSecret ? 
-    settings.consumerSecret.substring(0, 8) + '•'.repeat(Math.max(0, settings.consumerSecret.length - 8)) : '';
 
   return (
     <div className="space-y-8">
@@ -53,120 +49,65 @@ const WooCommerceSettings: React.FC<WooCommerceSettingsProps> = ({ settings, onU
       {/* Configuration API */}
       <div className="bg-white border border-gray-200 rounded-lg p-6">
         <h3 className="text-lg font-medium text-gray-900 mb-6 flex items-center">
-          <Key className="w-5 h-5 mr-2" />
+          <Globe className="w-5 h-5 mr-2" />
           Configuration API
         </h3>
 
-        <div className="space-y-6">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              URL de l'API WooCommerce *
-            </label>
-            <input
-              type="url"
-              value={settings.apiUrl}
-              onChange={(e) => handleChange('apiUrl', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              placeholder="https://votre-site.com/wp-json/wc/v3"
-            />
-            <p className="text-xs text-gray-500 mt-1">
-              L'URL de base de votre API WooCommerce (généralement se termine par /wp-json/wc/v3)
-            </p>
-          </div>
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+          <p className="text-sm text-blue-700">
+            Les identifiants de connexion WooCommerce sont configurés via les variables d'environnement de l'application.
+            Si vous avez besoin de les modifier, veuillez contacter votre administrateur système.
+          </p>
+        </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Consumer Key *
-            </label>
-            <input
-              type="text"
-              value={settings.consumerKey}
-              onChange={(e) => handleChange('consumerKey', e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              placeholder="ck_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Consumer Secret *
-            </label>
-            <div className="relative">
-              <input
-                type={showSecret ? "text" : "password"}
-                value={settings.consumerSecret}
-                onChange={(e) => handleChange('consumerSecret', e.target.value)}
-                className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="cs_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-              />
-              <button
-                type="button"
-                onClick={() => setShowSecret(!showSecret)}
-                className="absolute inset-y-0 right-0 pr-3 flex items-center"
-              >
-                {showSecret ? (
-                  <EyeOff className="w-4 h-4 text-gray-400" />
-                ) : (
-                  <Eye className="w-4 h-4 text-gray-400" />
-                )}
-              </button>
-            </div>
-            {!showSecret && settings.consumerSecret && (
-              <p className="text-xs text-gray-500 mt-1">
-                Masqué: {maskedSecret}
+        {/* Test de connexion */}
+        <div className="bg-gray-50 rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h4 className="font-medium text-gray-900">Test de connexion</h4>
+              <p className="text-sm text-gray-600 mt-1">
+                Vérifiez que les paramètres de connexion sont corrects
               </p>
-            )}
-          </div>
-
-          {/* Test de connexion */}
-          <div className="bg-gray-50 rounded-lg p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h4 className="font-medium text-gray-900">Test de connexion</h4>
-                <p className="text-sm text-gray-600 mt-1">
-                  Vérifiez que les paramètres de connexion sont corrects
-                </p>
-              </div>
-              <button
-                onClick={testConnection}
-                disabled={testingConnection || !settings.apiUrl || !settings.consumerKey || !settings.consumerSecret}
-                className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                {testingConnection ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                    <span>Test en cours...</span>
-                  </>
-                ) : (
-                  <>
-                    <Zap className="w-4 h-4" />
-                    <span>Tester</span>
-                  </>
-                )}
-              </button>
             </div>
-
-            {/* Résultat du test */}
-            {connectionStatus !== 'idle' && (
-              <div className={`mt-4 p-3 rounded-lg flex items-center space-x-2 ${
-                connectionStatus === 'success' 
-                  ? 'bg-green-100 text-green-800' 
-                  : 'bg-red-100 text-red-800'
-              }`}>
-                {connectionStatus === 'success' ? (
-                  <CheckCircle className="w-4 h-4" />
-                ) : (
-                  <AlertCircle className="w-4 h-4" />
-                )}
-                <span className="text-sm font-medium">
-                  {connectionStatus === 'success' 
-                    ? 'Connexion réussie ! L\'API WooCommerce est accessible.' 
-                    : 'Échec de la connexion. Vérifiez vos paramètres.'
-                  }
-                </span>
-              </div>
-            )}
+            <button
+              onClick={testConnection}
+              disabled={testingConnection}
+              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {testingConnection ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  <span>Test en cours...</span>
+                </>
+              ) : (
+                <>
+                  <Zap className="w-4 h-4" />
+                  <span>Tester</span>
+                </>
+              )}
+            </button>
           </div>
+
+          {/* Résultat du test */}
+          {connectionStatus !== 'idle' && (
+            <div className={`mt-4 p-3 rounded-lg flex items-center space-x-2 ${
+              connectionStatus === 'success'
+                ? 'bg-green-100 text-green-800'
+                : 'bg-red-100 text-red-800'
+            }`}>
+              {connectionStatus === 'success' ? (
+                <CheckCircle className="w-4 h-4" />
+              ) : (
+                <AlertCircle className="w-4 h-4" />
+              )}
+              <span className="text-sm font-medium">
+                {connectionStatus === 'success'
+                  ? 'Connexion réussie ! L\'API WooCommerce est accessible.'
+                  : 'Échec de la connexion. Vérifiez les variables d\'environnement de l\'application.'
+                }
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -250,10 +191,10 @@ const WooCommerceSettings: React.FC<WooCommerceSettingsProps> = ({ settings, onU
             />
             <div>
               <label htmlFor="notifyCustomers" className="text-sm font-medium text-gray-700">
-                Notifier les clients par email
+                Notifier les clients
               </label>
               <p className="text-xs text-gray-500">
-                Envoyer des notifications automatiques lors des changements de statut
+                Envoyer des notifications aux clients lors des mises à jour de commande
               </p>
             </div>
           </div>
@@ -268,25 +209,13 @@ const WooCommerceSettings: React.FC<WooCommerceSettingsProps> = ({ settings, onU
             />
             <div>
               <label htmlFor="stockManagement" className="text-sm font-medium text-gray-700">
-                Gestion automatique du stock
+                Gestion du stock
               </label>
               <p className="text-xs text-gray-500">
-                Mettre à jour le stock WooCommerce lors des livraisons et retours
+                Mettre à jour automatiquement le stock WooCommerce
               </p>
             </div>
           </div>
-        </div>
-      </div>
-
-      {/* Guide de configuration */}
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <h4 className="font-medium text-blue-900 mb-3">Guide de configuration</h4>
-        <div className="text-sm text-blue-700 space-y-2">
-          <p><strong>1.</strong> Connectez-vous à votre admin WooCommerce</p>
-          <p><strong>2.</strong> Allez dans WooCommerce → Paramètres → Avancé → API REST</p>
-          <p><strong>3.</strong> Cliquez sur "Ajouter une clé"</p>
-          <p><strong>4.</strong> Définissez les permissions sur "Lecture/Écriture"</p>
-          <p><strong>5.</strong> Copiez le Consumer Key et Consumer Secret ici</p>
         </div>
       </div>
     </div>

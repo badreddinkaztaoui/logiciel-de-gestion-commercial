@@ -30,7 +30,7 @@ CREATE TABLE public.audit_log (
 -- Create customers table
 CREATE TABLE public.customers (
     id uuid NOT NULL DEFAULT gen_random_uuid(),
-    woocommerce_id integer UNIQUE,
+    woocommerce_id integer,
     first_name character varying NOT NULL,
     last_name character varying NOT NULL,
     company character varying,
@@ -47,7 +47,8 @@ CREATE TABLE public.customers (
     user_id uuid REFERENCES auth.users(id),
     created_at timestamp with time zone DEFAULT now(),
     updated_at timestamp with time zone DEFAULT now(),
-    CONSTRAINT customers_pkey PRIMARY KEY (id)
+    CONSTRAINT customers_pkey PRIMARY KEY (id),
+    UNIQUE (woocommerce_id, user_id)
 );
 
 -- Create WooCommerce orders table with pagination support
@@ -72,7 +73,7 @@ CREATE TABLE public.woocommerce_orders (
     synced_at timestamp with time zone DEFAULT now(),
     created_at timestamp with time zone DEFAULT now(),
     updated_at timestamp with time zone DEFAULT now(),
-    CONSTRAINT woocommerce_orders_pkey PRIMARY KEY (id)
+    CONSTRAINT woocommerce_orders_pkey PRIMARY KEY (id, user_id)
 );
 
 -- Create invoice sequences for automatic numbering
@@ -96,7 +97,7 @@ CREATE TABLE public.invoice_sequences (
 CREATE TABLE public.invoices (
     id uuid NOT NULL DEFAULT gen_random_uuid(),
     number character varying NOT NULL UNIQUE,
-    woocommerce_order_id integer REFERENCES public.woocommerce_orders(id),
+    woocommerce_order_id integer,
     customer_id uuid REFERENCES public.customers(id),
     date date NOT NULL,
     due_date date NOT NULL,
@@ -112,7 +113,8 @@ CREATE TABLE public.invoices (
     user_id uuid REFERENCES auth.users(id),
     created_at timestamp with time zone DEFAULT now(),
     updated_at timestamp with time zone DEFAULT now(),
-    CONSTRAINT invoices_pkey PRIMARY KEY (id)
+    CONSTRAINT invoices_pkey PRIMARY KEY (id),
+    FOREIGN KEY (woocommerce_order_id, user_id) REFERENCES public.woocommerce_orders(id, user_id)
 );
 
 -- Create invoice items table
@@ -135,7 +137,7 @@ CREATE TABLE public.delivery_notes (
     id uuid NOT NULL DEFAULT gen_random_uuid(),
     number character varying NOT NULL UNIQUE,
     invoice_id uuid REFERENCES public.invoices(id),
-    woocommerce_order_id integer REFERENCES public.woocommerce_orders(id),
+    woocommerce_order_id integer,
     customer_id uuid REFERENCES public.customers(id),
     date date NOT NULL,
     estimated_delivery_date date,
@@ -145,7 +147,8 @@ CREATE TABLE public.delivery_notes (
     user_id uuid REFERENCES auth.users(id),
     created_at timestamp with time zone DEFAULT now(),
     updated_at timestamp with time zone DEFAULT now(),
-    CONSTRAINT delivery_notes_pkey PRIMARY KEY (id)
+    CONSTRAINT delivery_notes_pkey PRIMARY KEY (id),
+    FOREIGN KEY (woocommerce_order_id, user_id) REFERENCES public.woocommerce_orders(id, user_id)
 );
 
 -- Create delivery note items table
