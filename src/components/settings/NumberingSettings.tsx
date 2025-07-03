@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Hash, RotateCw, AlertCircle } from 'lucide-react';
 import { NumberingSettings as INumberingSettings, settingsService } from '../../services/settingsService';
+import { documentNumberingService } from '../../services/documentNumberingService';
 
 interface NumberingSettingsProps {
   settings: INumberingSettings;
@@ -51,9 +52,15 @@ const NumberingSettings: React.FC<NumberingSettingsProps> = ({ settings, onUpdat
   const loadNextNumber = async (type: keyof INumberingSettings) => {
     try {
       setLoading(prev => ({ ...prev, [type]: true }));
-      const docSettings = settings[type];
-      const formattedNumber = formatDocumentNumber(type, docSettings.prefix, docSettings.suffix, docSettings.currentNumber);
-      setPreviewNumbers(prev => ({ ...prev, [type]: formattedNumber }));
+
+      if (type === 'SALES_JOURNAL' || type === 'INVOICE') {
+        const nextNumber = await documentNumberingService.generatePreviewNumber(type);
+        setPreviewNumbers(prev => ({ ...prev, [type]: nextNumber }));
+      } else {
+        const docSettings = settings[type];
+        const formattedNumber = formatDocumentNumber(type, docSettings.prefix, docSettings.suffix, docSettings.currentNumber);
+        setPreviewNumbers(prev => ({ ...prev, [type]: formattedNumber }));
+      }
     } catch (error) {
       console.error('Error getting next number:', error);
       // Fallback to local preview

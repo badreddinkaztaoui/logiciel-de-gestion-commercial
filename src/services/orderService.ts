@@ -81,21 +81,31 @@ class OrderService {
     };
   }
 
-  async getOrders(): Promise<WooCommerceOrder[]> {
+  async getOrders(page: number = 1, limit: number = 20): Promise<{
+    data: WooCommerceOrder[];
+    count: number | null;
+  }> {
     try {
       await this.ensureAuthenticated();
 
-      const { data, error } = await supabase
+      const from = (page - 1) * limit;
+      const to = from + limit - 1;
+
+      const { data, error, count } = await supabase
         .from(this.TABLE_NAME)
-        .select('*')
-        .order('date_created', { ascending: false });
+        .select('*', { count: 'exact' })
+        .order('date_created', { ascending: false })
+        .range(from, to);
 
       if (error) {
         console.error('Error fetching orders:', error);
         throw error;
       }
 
-      return (data as WooCommerceOrder[]) || [];
+      return {
+        data: (data as WooCommerceOrder[]) || [],
+        count
+      };
     } catch (error) {
       console.error('Failed to fetch orders:', error);
       throw error;
@@ -225,7 +235,7 @@ class OrderService {
   }> {
     try {
       if (!newOrders || newOrders.length === 0) {
-        const existingOrders = await this.getOrders();
+        const { data: existingOrders } = await this.getOrders();
         return { mergedOrders: existingOrders, newOrdersCount: 0 };
       }
 
@@ -255,18 +265,10 @@ class OrderService {
       }
 
       // Get all orders after merge
-      const { data: allOrders, error: fetchError } = await supabase
-        .from(this.TABLE_NAME)
-        .select('*')
-        .order('date_created', { ascending: false });
-
-      if (fetchError) {
-        console.error('Error fetching merged orders:', fetchError);
-        throw fetchError;
-      }
+      const { data: allOrders } = await this.getOrders();
 
       return {
-        mergedOrders: allOrders as WooCommerceOrder[],
+        mergedOrders: allOrders,
         newOrdersCount: ordersToUpsert.length
       };
     } catch (error) {
@@ -338,7 +340,7 @@ class OrderService {
     recentCount: number;
   }> {
     try {
-      const orders = await this.getOrders();
+      const { data: orders } = await this.getOrders();
 
       const stats = {
         total: orders.length,
@@ -352,9 +354,7 @@ class OrderService {
 
       orders.forEach(order => {
         stats.byStatus[order.status] = (stats.byStatus[order.status] || 0) + 1;
-
         stats.totalValue += parseFloat(order.total || '0');
-
         if (new Date(order.date_created) > sevenDaysAgo) {
           stats.recentCount++;
         }

@@ -1,7 +1,7 @@
 import { supabase } from '../lib/supabase';
-import { SalesJournal, SalesJournalLine } from '../types';
+import { SalesJournal, SalesJournalLine, WooCommerceOrder, WooCommerceLineItem } from '../types';
 import { orderService } from './orderService';
-import { generateDocumentNumber } from '../utils/formatters';
+import { documentNumberingService } from './documentNumberingService';
 
 class SalesJournalService {
   private readonly TABLE_NAME = 'sales_journal';
@@ -123,6 +123,15 @@ class SalesJournalService {
 
       if (!journal.id) {
         journalData.id = crypto.randomUUID();
+
+        // Generate journal number if not provided
+        if (!journal.number) {
+          journalData.number = await documentNumberingService.generateNumber(
+            'SALES_JOURNAL',
+            undefined,
+            journalData.id
+          );
+        }
       }
 
       const { data, error } = await supabase
@@ -166,9 +175,9 @@ class SalesJournalService {
     console.log(`Generating sales journal for date: ${date}`);
 
     try {
-      const allOrders = await orderService.getOrders();
+      const { data: allOrders } = await orderService.getOrders();
 
-      const ordersForDate = allOrders.filter(order => {
+      const ordersForDate = allOrders.filter((order: WooCommerceOrder) => {
         const orderDate = new Date(order.date_created).toISOString().split('T')[0];
         return orderDate === date;
       });
@@ -178,12 +187,12 @@ class SalesJournalService {
       const journalLines: SalesJournalLine[] = [];
       const orderIds: number[] = [];
 
-      ordersForDate.forEach(order => {
+      ordersForDate.forEach((order: WooCommerceOrder) => {
         orderIds.push(order.id);
 
         const customerName = `${order.billing.first_name} ${order.billing.last_name}`.trim();
 
-        order.line_items.forEach(lineItem => {
+        order.line_items.forEach((lineItem: WooCommerceLineItem) => {
           const itemTotalTTC = parseFloat(lineItem.total || '0') + parseFloat(lineItem.total_tax || '0');
           const itemTax = parseFloat(lineItem.total_tax || '0');
           const itemTotalHT = itemTotalTTC - itemTax;
@@ -251,11 +260,13 @@ class SalesJournalService {
         .sort((a, b) => a.rate - b.rate);
 
       // Get the next number using the settings service
-      const number = await generateDocumentNumber('SALES_JOURNAL');
-
       const salesJournal: SalesJournal = {
         id: crypto.randomUUID(),
-        number,
+        number: await documentNumberingService.generateNumber(
+          'SALES_JOURNAL',
+          undefined,
+          crypto.randomUUID() // Generate a temporary ID for the journal
+        ),
         date: date,
         createdAt: new Date().toISOString(),
         status: 'draft',

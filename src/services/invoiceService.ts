@@ -1,6 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { Invoice } from '../types';
-import { customerService } from './customerService';
+import { documentNumberingService } from './documentNumberingService';
 
 class InvoiceService {
   private readonly TABLE_NAME = 'invoices';
@@ -139,6 +139,14 @@ class InvoiceService {
 
       if (!invoice.id) {
         invoiceData.id = crypto.randomUUID();
+
+        // Generate invoice number if not provided
+        if (!invoice.number) {
+          invoiceData.number = await documentNumberingService.generateNumber(
+            'INVOICE',
+            invoice.orderId
+          );
+        }
       }
 
       const { data, error } = await supabase

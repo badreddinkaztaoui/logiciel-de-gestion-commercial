@@ -1,142 +1,159 @@
 import { supabase } from '../lib/supabase';
 
+interface DocumentNumber {
+  id: string;
+  documentType: 'INVOICE' | 'SALES_JOURNAL';
+  number: string;
+  year: number;
+  sequence: number;
+  createdAt: string;
+  orderId?: number;
+  journalId?: string;
+}
+
 /**
  * Service for managing document number sequences
  * This ensures sequential, non-duplicated document numbers with proper tracking
  */
 class DocumentNumberingService {
-  /**
-   * Ensure user is authenticated
-   */
-  private async ensureAuthenticated(): Promise<string> {
-    const { data: { user }, error } = await supabase.auth.getUser();
-    if (error || !user) {
-      throw new Error('User must be authenticated to perform this operation');
+  private readonly TABLE_NAME = 'document_numbers';
+
+  async initialize() {
+    // Create the document_numbers table if it doesn't exist
+    const { error } = await supabase.rpc('create_document_numbers_table');
+    if (error) {
+      console.error('Error creating document_numbers table:', error);
     }
-    return user.id;
   }
 
-  /**
-   * Reserve a document number for a specific document type
-   * @param documentType The type of document (invoice, quote, etc.)
-   * @returns The reserved document number
-   */
-  async reserveDocumentNumber(documentType: string): Promise<string> {
-    try {
-      await this.ensureAuthenticated();
-      
-      // Call the RPC function to reserve a new document number
-      console.log(`Reserving new number for ${documentType}...`);
-      const { data, error } = await supabase.rpc('reserve_document_number', {
-        p_document_type: documentType
-      });
-      
-      if (error) {
-        console.error('Error reserving document number:', error);
-        throw error;
+  private async getLastNumber(documentType: 'INVOICE' | 'SALES_JOURNAL', year: number): Promise<number> {
+    const { data, error } = await supabase
+      .from(this.TABLE_NAME)
+      .select('sequence')
+      .eq('document_type', documentType)
+      .eq('year', year)
+      .order('sequence', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') { // No rows found
+        return 0;
       }
-      
-      if (!data) {
-        throw new Error('Failed to reserve document number');
-      }
-      
-      const documentNumber = data;
-      console.log(`Reserved document number for ${documentType}: ${documentNumber}`);
-      return documentNumber;
-    } catch (error) {
-      console.error('Error in reserveDocumentNumber:', error);
       throw error;
     }
+
+    return data?.sequence || 0;
   }
 
-  /**
-   * Confirm that a document number has been used
-   * @param documentType The type of document
-   * @param documentNumber The document number to confirm
-   * @param documentId The ID of the document that used this number
-   * @returns true if confirmed
-   */
-  async confirmDocumentNumber(documentType: string, documentNumber: string, documentId: string): Promise<boolean> {
-    try {
-      await this.ensureAuthenticated();
-      
-      // Call the function to confirm the document number
-      const { data, error } = await supabase.rpc('confirm_document_number', {
-        p_document_type: documentType,
-        p_document_number: documentNumber,
-        p_document_id: documentId
+  async generateNumber(
+    documentType: 'INVOICE' | 'SALES_JOURNAL',
+    orderId?: number,
+    journalId?: string
+  ): Promise<string> {
+    const year = new Date().getFullYear();
+
+    // Get the last sequence number for this year
+    const lastSequence = await this.getLastNumber(documentType, year);
+    const nextSequence = lastSequence + 1;
+
+    // Format: F G{YEAR}{SEQUENCE}
+    const formattedNumber = `F G${year}${nextSequence.toString().padStart(4, '0')}`;
+
+    // Save the new number
+    const documentNumber: DocumentNumber = {
+      id: crypto.randomUUID(),
+      documentType,
+      number: formattedNumber,
+      year,
+      sequence: nextSequence,
+      createdAt: new Date().toISOString(),
+      orderId,
+      journalId
+    };
+
+    const { error } = await supabase
+      .from(this.TABLE_NAME)
+      .insert({
+        id: documentNumber.id,
+        document_type: documentNumber.documentType,
+        number: documentNumber.number,
+        year: documentNumber.year,
+        sequence: documentNumber.sequence,
+        created_at: documentNumber.createdAt,
+        order_id: documentNumber.orderId,
+        journal_id: documentNumber.journalId
       });
-      
-      if (error) {
-        console.error('Error confirming document number:', error);
-        throw error;
-      }
-      
-      console.log(`Confirmed document number for ${documentType}: ${documentNumber}`);
-      return true;
-    } catch (error) {
-      console.error('Error in confirmDocumentNumber:', error);
+
+    if (error) {
       throw error;
     }
+
+    return formattedNumber;
   }
 
-  /**
-   * Release a document number that was reserved but not used
-   * @param documentType The type of document
-   * @param documentNumber The document number to release
-   * @returns true if released
-   */
-  async releaseDocumentNumber(documentType: string, documentNumber: string): Promise<boolean> {
-    try {
-      await this.ensureAuthenticated();
-      
-      console.log(`Releasing document number ${documentNumber} for ${documentType}...`);
-      
-      // Call the function to release the document number
-      const { data, error } = await supabase.rpc('release_document_number', {
-        p_document_type: documentType,
-        p_document_number: documentNumber
-      });
-      
-      if (error) {
-        console.error('Error releasing document number:', error);
-        throw error;
+  async getNumberByOrderId(orderId: number): Promise<string | null> {
+    const { data, error } = await supabase
+      .from(this.TABLE_NAME)
+      .select('number')
+      .eq('orderId', orderId)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return null;
       }
-      
-      console.log(`Released document number for ${documentType}: ${documentNumber}`);
-      return true;
-    } catch (error) {
-      console.error('Error in releaseDocumentNumber:', error);
-      return false; // Return false instead of throwing to avoid crashes on cleanup
+      throw error;
     }
+
+    return data?.number || null;
   }
 
-  /**
-   * Check if a document number is available (reserved but not confirmed)
-   * @param documentType The type of document
-   * @param documentNumber The document number to check
-   * @returns true if the number is available
-   */
-  async isDocumentNumberAvailable(documentType: string, documentNumber: string): Promise<boolean> {
-    try {
-      await this.ensureAuthenticated();
-      
-      // Call the function to check document number availability
-      const { data, error } = await supabase.rpc('is_document_number_available', {
-        p_document_type: documentType,
-        p_document_number: documentNumber
-      });
-      
-      if (error) {
-        console.error('Error checking document number availability:', error);
-        throw error;
+  async getNumberByJournalId(journalId: string): Promise<string | null> {
+    const { data, error } = await supabase
+      .from(this.TABLE_NAME)
+      .select('number')
+      .eq('journalId', journalId)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return null;
       }
-      
-      return !!data;
-    } catch (error) {
-      console.error('Error in isDocumentNumberAvailable:', error);
-      return false;
+      throw error;
     }
+
+    return data?.number || null;
+  }
+
+  async validateNumber(number: string): Promise<boolean> {
+    const { data, error } = await supabase
+      .from(this.TABLE_NAME)
+      .select('id')
+      .eq('number', number)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return false;
+      }
+      throw error;
+    }
+
+    return !!data;
+  }
+
+  async generatePreviewNumber(
+    documentType: 'INVOICE' | 'SALES_JOURNAL'
+  ): Promise<string> {
+    const year = new Date().getFullYear();
+
+    // Get the last sequence number for this year
+    const lastSequence = await this.getLastNumber(documentType, year);
+    const nextSequence = lastSequence + 1;
+
+    // Format: F G{YEAR}{SEQUENCE}
+    return `F G${year}${nextSequence.toString().padStart(4, '0')}`;
   }
 
   /**
@@ -145,13 +162,11 @@ class DocumentNumberingService {
    */
   async cleanupStaleReservations(): Promise<void> {
     try {
-      await this.ensureAuthenticated();
-      
       // Delete reservations older than 24 hours that haven't been confirmed
       const { data, error } = await supabase.rpc('cleanup_stale_reservations', {
         p_hours_threshold: 24
       });
-      
+
       if (error) {
         console.error('Error cleaning up stale reservations:', error);
       } else {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useOutletContext } from 'react-router-dom';
 import {
   Plus,
@@ -33,6 +33,35 @@ interface LayoutContext {
   };
 }
 
+const OrderRowSkeleton: React.FC = () => (
+  <tr className="animate-pulse">
+    <td className="px-6 py-4 whitespace-nowrap">
+      <div className="h-4 w-16 bg-gray-200 rounded"></div>
+    </td>
+    <td className="px-6 py-4 whitespace-nowrap">
+      <div className="space-y-2">
+        <div className="h-4 w-32 bg-gray-200 rounded"></div>
+        <div className="h-3 w-24 bg-gray-200 rounded"></div>
+      </div>
+    </td>
+    <td className="px-6 py-4 whitespace-nowrap">
+      <div className="h-4 w-24 bg-gray-200 rounded"></div>
+    </td>
+    <td className="px-6 py-4 whitespace-nowrap">
+      <div className="h-6 w-20 bg-gray-200 rounded-full"></div>
+    </td>
+    <td className="px-6 py-4 whitespace-nowrap">
+      <div className="h-4 w-20 bg-gray-200 rounded"></div>
+    </td>
+    <td className="px-6 py-4 whitespace-nowrap text-right">
+      <div className="flex justify-end space-x-2">
+        <div className="h-4 w-4 bg-gray-200 rounded"></div>
+        <div className="h-4 w-4 bg-gray-200 rounded"></div>
+      </div>
+    </td>
+  </tr>
+);
+
 const Orders: React.FC = () => {
   const [orders, setOrders] = useState<WooCommerceOrder[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -40,6 +69,9 @@ const Orders: React.FC = () => {
   const [dateFilter, setDateFilter] = useState<string>('all');
   const [selectedOrder, setSelectedOrder] = useState<WooCommerceOrder | null>(null);
   const [loading, setLoading] = useState(true);
+  const [hasMore, setHasMore] = useState(true);
+  const [page, setPage] = useState(1);
+  const [totalCount, setTotalCount] = useState<number>(0);
   const [stats, setStats] = useState({
     total: 0,
     pending: 0,
@@ -48,36 +80,80 @@ const Orders: React.FC = () => {
     totalValue: 0,
     avgOrderValue: 0
   });
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+
+  const observer = useRef<IntersectionObserver>();
+  const lastOrderElementRef = useCallback((node: HTMLElement | null) => {
+    if (loading) return;
+    if (observer.current) observer.current.disconnect();
+    observer.current = new IntersectionObserver(entries => {
+      if (entries[0].isIntersecting && hasMore) {
+        setPage(prevPage => prevPage + 1);
+      }
+    });
+    if (node) observer.current.observe(node);
+  }, [loading, hasMore]);
 
   const navigate = useNavigate();
   const { syncStatus } = useOutletContext<LayoutContext>();
 
   useEffect(() => {
-    loadOrders();
+    // Initial data fetch and sync when component mounts
+    const initialLoad = async () => {
+      await loadOrders();
+      if (syncStatus.isConnected && !syncStatus.isSyncing) {
+        syncStatus.onManualSync();
+      }
+    };
+    initialLoad();
   }, []);
+
+  useEffect(() => {
+    if (page > 1) {
+      loadMoreOrders();
+    }
+  }, [page]);
 
   const loadOrders = async () => {
     try {
       setLoading(true);
-      const savedOrders = await orderService.getOrders();
-      setOrders(savedOrders);
-
-      // Calculate stats
-      const orderStats = {
-        total: savedOrders.length,
-        pending: savedOrders.filter(o => o.status === 'pending').length,
-        processing: savedOrders.filter(o => o.status === 'processing').length,
-        completed: savedOrders.filter(o => o.status === 'completed').length,
-        totalValue: savedOrders.reduce((sum, o) => sum + parseFloat(o.total || '0'), 0),
-        avgOrderValue: savedOrders.length > 0 ?
-          savedOrders.reduce((sum, o) => sum + parseFloat(o.total || '0'), 0) / savedOrders.length : 0
-      };
-      setStats(orderStats);
+      const response = await orderService.getOrders(1, 20);
+      setOrders(response.data);
+      setTotalCount(response.count || 0);
+      setHasMore(response.data.length === 20 && response.data.length < (response.count || 0));
+      updateStats(response.data);
     } catch (error) {
       console.error('Error loading orders:', error);
     } finally {
       setLoading(false);
     }
+  };
+
+  const loadMoreOrders = async () => {
+    try {
+      setIsLoadingMore(true);
+      const response = await orderService.getOrders(page, 20);
+      setOrders(prevOrders => [...prevOrders, ...response.data]);
+      setHasMore(response.data.length === 20 && orders.length < (response.count || 0));
+      updateStats([...orders, ...response.data]);
+    } catch (error) {
+      console.error('Error loading more orders:', error);
+    } finally {
+      setIsLoadingMore(false);
+    }
+  };
+
+  const updateStats = (ordersData: WooCommerceOrder[]) => {
+    const orderStats = {
+      total: ordersData.length,
+      pending: ordersData.filter(o => o.status === 'pending').length,
+      processing: ordersData.filter(o => o.status === 'processing').length,
+      completed: ordersData.filter(o => o.status === 'completed').length,
+      totalValue: ordersData.reduce((sum, o) => sum + parseFloat(o.total || '0'), 0),
+      avgOrderValue: ordersData.length > 0 ?
+        ordersData.reduce((sum, o) => sum + parseFloat(o.total || '0'), 0) / ordersData.length : 0
+    };
+    setStats(orderStats);
   };
 
   const handleCreateInvoiceFromOrder = (order: WooCommerceOrder) => {
@@ -274,10 +350,10 @@ const Orders: React.FC = () => {
         </div>
       </div>
 
-      {/* Orders List */}
+      {/* Orders Table */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full">
+          <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -301,8 +377,12 @@ const Orders: React.FC = () => {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {filteredOrders.map((order) => (
-                <tr key={order.id} className="hover:bg-gray-50">
+              {filteredOrders.map((order, index) => (
+                <tr
+                  key={order.id}
+                  ref={index === filteredOrders.length - 1 ? lastOrderElementRef : null}
+                  className="hover:bg-gray-50 transition-colors"
+                >
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm font-medium text-gray-900">
                       #{order.number || order.id}
@@ -347,10 +427,24 @@ const Orders: React.FC = () => {
                   </td>
                 </tr>
               ))}
+              {isLoadingMore && (
+                <>
+                  <OrderRowSkeleton />
+                  <OrderRowSkeleton />
+                  <OrderRowSkeleton />
+                </>
+              )}
             </tbody>
           </table>
         </div>
       </div>
+
+      {/* No more orders indicator */}
+      {!loading && !hasMore && orders.length > 0 && (
+        <div className="text-center py-4 text-gray-500">
+          Plus de commandes à charger
+        </div>
+      )}
 
       {/* Order Detail Modal */}
       {selectedOrder && (
