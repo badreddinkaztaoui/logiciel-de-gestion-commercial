@@ -30,7 +30,6 @@ class SalesJournalService {
   }
 
   private async mapSalesJournalToDatabase(journal: SalesJournal): Promise<any> {
-    const userId = await this.ensureAuthenticated();
     return {
       id: journal.id,
       number: journal.number,
@@ -39,8 +38,7 @@ class SalesJournalService {
       orders_included: journal.ordersIncluded,
       lines: journal.lines,
       totals: journal.totals,
-      notes: journal.notes,
-      user_id: userId
+      notes: journal.notes
     };
   }
 
@@ -50,8 +48,6 @@ class SalesJournalService {
 
   async getSalesJournals(): Promise<SalesJournal[]> {
     try {
-      await this.ensureAuthenticated();
-
       const { data, error } = await supabase
         .from(this.TABLE_NAME)
         .select('*')
@@ -71,8 +67,6 @@ class SalesJournalService {
 
   async getSalesJournalById(id: string): Promise<SalesJournal | null> {
     try {
-      await this.ensureAuthenticated();
-
       const { data, error } = await supabase
         .from(this.TABLE_NAME)
         .select('*')
@@ -95,8 +89,6 @@ class SalesJournalService {
 
   async getSalesJournalByDate(date: string): Promise<SalesJournal | null> {
     try {
-      await this.ensureAuthenticated();
-
       const { data, error } = await supabase
         .from(this.TABLE_NAME)
         .select('*')

@@ -57,15 +57,12 @@ class InvoiceService {
       tax_amount: invoice.tax,
       total: invoice.total,
       tax_rate: 20.00,
-      notes: invoice.notes,
-      user_id: this.currentUserId
+      notes: invoice.notes
     };
   }
 
   async getInvoices(): Promise<Invoice[]> {
     try {
-      await this.ensureAuthenticated();
-
       const { data, error } = await supabase
         .from(this.TABLE_NAME)
         .select('*')
@@ -85,8 +82,6 @@ class InvoiceService {
 
   async getInvoiceById(id: string): Promise<Invoice | null> {
     try {
-      await this.ensureAuthenticated();
-
       const { data, error } = await supabase
         .from(this.TABLE_NAME)
         .select('*')
@@ -109,8 +104,6 @@ class InvoiceService {
 
   async getInvoiceByOrderId(orderId: number): Promise<Invoice | null> {
     try {
-      await this.ensureAuthenticated();
-
       const { data, error } = await supabase
         .from(this.TABLE_NAME)
         .select('*')
