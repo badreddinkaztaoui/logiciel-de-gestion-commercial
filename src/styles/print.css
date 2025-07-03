@@ -1,0 +1,235 @@
+/* Print Styles */
+@media print {
+  /* Reset page margins */
+  @page {
+    margin: 1cm;
+    size: A4;
+  }
+
+  /* Hide non-printable elements */
+  header,
+  aside,
+  .print\:hidden,
+  nav,
+  button {
+    display: none !important;
+  }
+
+  /* Reset layout for print */
+  main {
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .p-6 {
+    padding: 0 !important;
+  }
+
+  /* Basic styles */
+  body {
+    font-family: Arial, sans-serif;
+    font-size: 9pt;
+    line-height: 1.2;
+    color: #000;
+    background: #fff;
+    margin: 0;
+    padding: 0;
+  }
+
+  /* Document header */
+  h1 {
+    font-size: 12pt;
+    font-weight: bold;
+    text-transform: uppercase;
+    margin: 0 0 0.8cm 0;
+    padding: 0;
+  }
+
+  /* Document info box */
+  .document-info {
+    border: 1px solid #000;
+    padding: 0.4cm;
+    margin-bottom: 0.8cm;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .document-info > div {
+    margin: 0;
+    padding: 0;
+  }
+
+  .document-info p {
+    margin: 0;
+    padding: 0;
+    line-height: 1.3;
+    font-size: 9pt;
+  }
+
+  .document-info p.font-bold {
+    font-weight: bold;
+  }
+
+  /* Table styles */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 0.8cm;
+    page-break-inside: auto;
+  }
+
+  tr {
+    page-break-inside: avoid;
+    page-break-after: auto;
+  }
+
+  th {
+    font-weight: bold;
+    text-align: left;
+    padding: 0.15cm;
+    border-bottom: 2px solid #000;
+    font-size: 8pt;
+    text-transform: uppercase;
+  }
+
+  td {
+    padding: 0.15cm;
+    border-bottom: 1px solid #000;
+    font-size: 8pt;
+  }
+
+  /* Right-aligned cells */
+  .text-right,
+  td[class*="text-right"],
+  th[class*="text-right"] {
+    text-align: right;
+  }
+
+  /* Totals section */
+  .totals-section {
+    width: 45% !important;
+    margin-left: 0 !important;
+    border: none !important;
+    page-break-inside: avoid;
+  }
+
+  .totals-section table {
+    margin-bottom: 0;
+    border: 1px solid #000 !important;
+  }
+
+  .totals-section td {
+    padding: 0.1cm !important;
+    font-size: 8pt;
+    border-color: #000 !important;
+  }
+
+  .totals-section tr:last-child td {
+    border-bottom: none;
+  }
+
+  /* Make monospace numbers more compact in print */
+  .font-mono {
+    font-family: "Courier New", monospace !important;
+    font-size: 7.5pt !important;
+  }
+
+  /* Bold text in tables */
+  td.font-bold,
+  th.font-bold {
+    font-weight: bold !important;
+  }
+
+  /* Ensure proper spacing between sections */
+  .print\:mt-4 {
+    margin-top: 0.8cm !important;
+  }
+
+  /* Remove padding in print */
+  .print\:p-0 {
+    padding: 0 !important;
+  }
+
+  .print\:p-1 {
+    padding: 0.1cm !important;
+  }
+
+  /* Ensure proper width in print */
+  .print\:w-\[45\%\] {
+    width: 45% !important;
+  }
+
+  /* Font weights */
+  .font-bold,
+  td.font-bold,
+  th.font-bold {
+    font-weight: bold;
+  }
+
+  /* Amount in words */
+  .amount-in-words {
+    margin-top: 0.8cm;
+    font-style: italic;
+    border-top: 1px solid #000;
+    padding-top: 0.4cm;
+    page-break-inside: avoid;
+  }
+
+  .amount-in-words p {
+    margin: 0;
+    padding: 0;
+    font-size: 8pt;
+  }
+
+  /* Page number */
+  .page-number {
+    text-align: right;
+    margin-top: 0.8cm;
+    font-size: 7pt;
+  }
+
+  .page-number p {
+    margin: 0;
+    padding: 0;
+  }
+
+  /* Force page breaks */
+  .page-break {
+    page-break-before: always;
+  }
+
+  /* Prevent breaks inside elements */
+  tr, td, th {
+    page-break-inside: avoid;
+  }
+
+  /* Table column widths */
+  th:nth-child(1), td:nth-child(1) { width: 15%; } /* Référence */
+  th:nth-child(2), td:nth-child(2) { width: 35%; } /* Désignation */
+  th:nth-child(3), td:nth-child(3) { width: 8%; }  /* Qté */
+  th:nth-child(4), td:nth-child(4) { width: 12%; } /* P.U. H.T */
+  th:nth-child(5), td:nth-child(5) { width: 12%; } /* Net H.T */
+  th:nth-child(6), td:nth-child(6) { width: 8%; }  /* T.V.A % */
+  th:nth-child(7), td:nth-child(7) { width: 10%; } /* Montant T.V.A */
+
+  /* Additional spacing and borders */
+  .mt-4 { margin-top: 0.8cm; }
+  .mb-8 { margin-bottom: 1.6cm; }
+
+  /* Currency formatting */
+  td:nth-child(4),
+  td:nth-child(5),
+  td:nth-child(7) {
+    font-family: "Courier New", monospace;
+  }
+
+  /* Quantity formatting */
+  td:nth-child(3) {
+    font-family: "Courier New", monospace;
+  }
+
+  /* Tax rate formatting */
+  td:nth-child(6) {
+    font-family: "Courier New", monospace;
+  }
+}
