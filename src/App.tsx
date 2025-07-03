@@ -44,31 +44,36 @@ const App: React.FC = () => {
     );
   }
 
-  if (!user) {
-    return <LoginPage />;
-  }
-
   return (
     <Router>
       <Routes>
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-          <Route index element={<Dashboard />} />
-          <Route path="dashboard" element={<Dashboard />} />
-          <Route path="orders" element={<Orders />} />
-          <Route path="quotes" element={<Quotes />} />
-          <Route path="invoices" element={<Invoices />} />
-          <Route path="invoices/create" element={<InvoiceForm />} />
-          <Route path="invoices/edit/:id" element={<InvoiceForm />} />
-          <Route path="sales-journal" element={<SalesJournal />} />
-          <Route path="delivery" element={<DeliveryNotes />} />
-          <Route path="returns" element={<ReturnNotes />} />
-          <Route path="purchase-orders" element={<PurchaseOrders />} />
-          <Route path="suppliers" element={<Suppliers />} />
-          <Route path="clients" element={<Customers />} />
-          <Route path="settings" element={<Settings />} />
-        </Route>
-        <Route path="*" element={<Navigate to="/" replace />} />
+        {!user ? (
+          <>
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="*" element={<Navigate to="/login" replace />} />
+          </>
+        ) : (
+          <>
+            <Route path="/login" element={<Navigate to="/" replace />} />
+            <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+              <Route index element={<Dashboard />} />
+              <Route path="dashboard" element={<Dashboard />} />
+              <Route path="orders" element={<Orders />} />
+              <Route path="quotes" element={<Quotes />} />
+              <Route path="invoices" element={<Invoices />} />
+              <Route path="invoices/create" element={<InvoiceForm />} />
+              <Route path="invoices/edit/:id" element={<InvoiceForm />} />
+              <Route path="sales-journal" element={<SalesJournal />} />
+              <Route path="delivery" element={<DeliveryNotes />} />
+              <Route path="returns" element={<ReturnNotes />} />
+              <Route path="purchase-orders" element={<PurchaseOrders />} />
+              <Route path="suppliers" element={<Suppliers />} />
+              <Route path="clients" element={<Customers />} />
+              <Route path="settings" element={<Settings />} />
+            </Route>
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </>
+        )}
       </Routes>
     </Router>
   );
