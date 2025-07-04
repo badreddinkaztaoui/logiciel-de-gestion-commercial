@@ -133,7 +133,7 @@ export interface Invoice {
   quoteId?: string; // ID du devis d'origine
   date: string;
   dueDate: string;
-  status: 'draft' | 'sent' | 'paid' | 'overdue';
+  status: 'draft' | 'sent' | 'paid' | 'overdue' | 'cancelled';
   customer: {
     name: string;
     email: string;
@@ -158,6 +158,8 @@ export interface Invoice {
   tax: number; // Total des taxes
   total: number; // Total TTC
   notes?: string;
+  woocommerceStatus?: string; // WooCommerce order status
+  lastSyncedAt?: string; // Last sync timestamp with WooCommerce
 }
 
 export interface DeliveryNote {

@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Hash, RotateCw, AlertCircle } from 'lucide-react';
+import { Hash, RotateCw, AlertCircle, Save } from 'lucide-react';
 import { NumberingSettings as INumberingSettings, settingsService } from '../../services/settingsService';
 import { documentNumberingService } from '../../services/documentNumberingService';
+import { toast } from 'react-hot-toast';
 
 interface NumberingSettingsProps {
   settings: INumberingSettings;
@@ -9,12 +10,16 @@ interface NumberingSettingsProps {
 }
 
 const NumberingSettings: React.FC<NumberingSettingsProps> = ({ settings, onUpdate }) => {
-  const [previewNumbers, setPreviewNumbers] = useState<Record<string, string>>({});
-  const [loading, setLoading] = useState<Record<string, boolean>>({});
+  const [localSettings, setLocalSettings] = useState<INumberingSettings>(settings);
+  const [hasChanges, setHasChanges] = useState(false);
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
 
+  // Update local settings when props change
+  useEffect(() => {
+    setLocalSettings(settings);
+  }, [settings]);
+
   const formatDocumentNumber = (type: keyof INumberingSettings, prefix: string, suffix: string, number: number) => {
-    // Special format for sales journal and invoice
     if (type === 'SALES_JOURNAL') {
       return `F G${selectedYear}${number.toString().padStart(4, '0')}`;
     } else if (type === 'INVOICE') {
@@ -26,48 +31,75 @@ const NumberingSettings: React.FC<NumberingSettingsProps> = ({ settings, onUpdat
     }
   };
 
-  const handleDocumentTypeUpdate = async (
-    type: keyof INumberingSettings,
-    field: string,
-    value: any
-  ) => {
-    // Update local state
-    onUpdate({
-      [type]: { ...settings[type], [field]: value }
-    });
+  const handleStartNumberChange = (type: keyof INumberingSettings, value: string) => {
+    const numValue = Math.max(1, parseInt(value) || 1);
 
-    // If changing start number, also update current number
-    if (field === 'startNumber' && value > settings[type].currentNumber) {
-      onUpdate({
-        [type]: { ...settings[type], [field]: value, currentNumber: value }
-      });
-    }
+    setLocalSettings(prev => ({
+      ...prev,
+      [type]: {
+        ...prev[type],
+        startNumber: numValue,
+        currentNumber: numValue
+      }
+    }));
+    setHasChanges(true);
+  };
 
-    // Update preview immediately when prefix or suffix changes
-    if (field === 'prefix' || field === 'suffix') {
-      const docSettings = { ...settings[type], [field]: value };
-      const formattedNumber = formatDocumentNumber(type, docSettings.prefix, docSettings.suffix, docSettings.currentNumber);
-      setPreviewNumbers(prev => ({ ...prev, [type]: formattedNumber }));
+  const handleFieldChange = (type: keyof INumberingSettings, field: string, value: any) => {
+    setLocalSettings(prev => ({
+      ...prev,
+      [type]: {
+        ...prev[type],
+        [field]: value
+      }
+    }));
+    setHasChanges(true);
+  };
+
+  const handleSave = async () => {
+    if (hasChanges) {
+      try {
+        // First save the settings
+        await settingsService.updateNumberingSettings(localSettings);
+
+        // Then reset numbering if needed for special document types
+        for (const docType of documentTypes) {
+          if ((docType.key === 'SALES_JOURNAL' || docType.key === 'INVOICE') &&
+              localSettings[docType.key].startNumber !== settings[docType.key].startNumber) {
+            await documentNumberingService.resetNumbering(docType.key);
+          }
+        }
+
+        // Update the parent component's state
+        onUpdate(localSettings);
+        setHasChanges(false);
+
+        // Show success message
+        toast.success('Paramètres de numérotation enregistrés avec succès');
+      } catch (error) {
+        console.error('Error saving numbering settings:', error);
+        toast.error('Erreur lors de l\'enregistrement des paramètres');
+      }
     }
   };
 
   const handleReset = async (type: keyof INumberingSettings) => {
     if (window.confirm(`Réinitialiser la numérotation pour ${type === 'SALES_JOURNAL' ? 'le journal de vente' : type} ? Cette action est irréversible.`)) {
       try {
-        // Only reset if it's a document type that uses the document_numbers table
         if (type === 'SALES_JOURNAL' || type === 'INVOICE') {
-          // Reset the entire table structure for a fresh start
-          await documentNumberingService.resetTableStructure();
+          // Just reset the numbering without recreating the table
+          await documentNumberingService.resetNumbering(type);
         }
 
-        // Reset the settings to start number
-        const startNumber = settings[type].startNumber || 1;
-        onUpdate({
-          [type]: { ...settings[type], currentNumber: startNumber }
-        });
-
-        // Reload preview
-        await loadNextNumber(type);
+        const startNumber = localSettings[type].startNumber || 1;
+        setLocalSettings(prev => ({
+          ...prev,
+          [type]: {
+            ...prev[type],
+            currentNumber: startNumber
+          }
+        }));
+        setHasChanges(true);
       } catch (error) {
         console.error('Error resetting numbering:', error);
         alert('Erreur lors de la réinitialisation de la numérotation');
@@ -75,34 +107,14 @@ const NumberingSettings: React.FC<NumberingSettingsProps> = ({ settings, onUpdat
     }
   };
 
-  const loadNextNumber = async (type: keyof INumberingSettings) => {
-    try {
-      setLoading(prev => ({ ...prev, [type]: true }));
-
-      if (type === 'SALES_JOURNAL' || type === 'INVOICE') {
-        const nextNumber = await documentNumberingService.generatePreviewNumber(type);
-        setPreviewNumbers(prev => ({ ...prev, [type]: nextNumber }));
-      } else {
-        const docSettings = settings[type];
-        const formattedNumber = formatDocumentNumber(type, docSettings.prefix, docSettings.suffix, docSettings.currentNumber);
-        setPreviewNumbers(prev => ({ ...prev, [type]: formattedNumber }));
-      }
-    } catch (error) {
-      console.error('Error getting next number:', error);
-      // Fallback to local preview
-      const docSettings = settings[type];
-      const formattedNumber = formatDocumentNumber(type, docSettings.prefix, docSettings.suffix, docSettings.currentNumber);
-      setPreviewNumbers(prev => ({ ...prev, [type]: formattedNumber }));
-    } finally {
-      setLoading(prev => ({ ...prev, [type]: false }));
-    }
+  const getPreviewNumber = (type: keyof INumberingSettings) => {
+    const docSettings = localSettings[type];
+    return formatDocumentNumber(type, docSettings.prefix, docSettings.suffix, docSettings.currentNumber);
   };
 
-  // Update preview when year changes for sales journal and invoice
-  useEffect(() => {
-    loadNextNumber('SALES_JOURNAL');
-    loadNextNumber('INVOICE');
-  }, [selectedYear]);
+  // Generate year options (current year +/- 5 years)
+  const currentYear = new Date().getFullYear();
+  const yearOptions = Array.from({ length: 11 }, (_, i) => currentYear - 5 + i);
 
   const documentTypes = [
     { key: 'QUOTE' as const, label: 'Devis', icon: '📋', color: 'purple' },
@@ -113,35 +125,38 @@ const NumberingSettings: React.FC<NumberingSettingsProps> = ({ settings, onUpdat
     { key: 'PURCHASE_ORDER' as const, label: 'Bons de commande', icon: '🛒', color: 'red' }
   ];
 
-  // Load preview numbers when component mounts
-  useEffect(() => {
-    documentTypes.forEach(({ key }) => {
-      loadNextNumber(key);
-    });
-  }, [settings]);
-
-  // Generate year options (current year +/- 5 years)
-  const currentYear = new Date().getFullYear();
-  const yearOptions = Array.from({ length: 11 }, (_, i) => currentYear - 5 + i);
-
   return (
     <div className="space-y-8">
-      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <div className="flex items-start space-x-3">
-          <Hash className="w-5 h-5 text-blue-500 mt-0.5" />
-          <div>
-            <h4 className="font-medium text-blue-900">Configuration de la numérotation</h4>
-            <p className="text-sm text-blue-700 mt-1">
-              Configurez le format de numérotation pour chaque type de document.
-              La numérotation est gérée automatiquement et garantit des numéros uniques.
-            </p>
+      <div className="flex justify-between items-center">
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex-1 mr-4">
+          <div className="flex items-start space-x-3">
+            <Hash className="w-5 h-5 text-blue-500 mt-0.5" />
+            <div>
+              <h4 className="font-medium text-blue-900">Configuration de la numérotation</h4>
+              <p className="text-sm text-blue-700 mt-1">
+                Configurez le format de numérotation pour chaque type de document.
+                La numérotation est gérée automatiquement et garantit des numéros uniques.
+              </p>
+            </div>
           </div>
         </div>
+        <button
+          onClick={handleSave}
+          disabled={!hasChanges}
+          className={`px-4 py-2 rounded-lg flex items-center space-x-2 ${
+            hasChanges
+              ? 'bg-blue-600 text-white hover:bg-blue-700'
+              : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+          }`}
+        >
+          <Save className="w-4 h-4" />
+          <span>Sauvegarder</span>
+        </button>
       </div>
 
       {documentTypes.map((docType) => {
-        const docSettings = settings[docType.key];
-        const previewNumber = previewNumbers[docType.key] || '';
+        const docSettings = localSettings[docType.key];
+        const previewNumber = getPreviewNumber(docType.key);
 
         return (
           <div key={docType.key} className="bg-white border border-gray-200 rounded-lg p-6">
@@ -151,13 +166,9 @@ const NumberingSettings: React.FC<NumberingSettingsProps> = ({ settings, onUpdat
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900">{docType.label}</h3>
                   <p className="text-sm text-gray-600">
-                    Prochain numéro: {loading[docType.key] ? (
-                      <span className="font-mono text-gray-400">Chargement...</span>
-                    ) : (
-                      <span className="font-mono font-bold text-blue-600">
-                        {previewNumber}
-                      </span>
-                    )}
+                    Prochain numéro: <span className="font-mono font-bold text-blue-600">
+                      {previewNumber}
+                    </span>
                   </p>
                 </div>
               </div>
@@ -173,7 +184,6 @@ const NumberingSettings: React.FC<NumberingSettingsProps> = ({ settings, onUpdat
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {(docType.key === 'SALES_JOURNAL' || docType.key === 'INVOICE') ? (
-                // Special inputs for Sales Journal and Invoice
                 <>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -188,9 +198,6 @@ const NumberingSettings: React.FC<NumberingSettingsProps> = ({ settings, onUpdat
                         <option key={year} value={year}>{year}</option>
                       ))}
                     </select>
-                    <p className="text-xs text-gray-500 mt-1">
-                      L'année qui sera utilisée dans le numéro
-                    </p>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -199,17 +206,13 @@ const NumberingSettings: React.FC<NumberingSettingsProps> = ({ settings, onUpdat
                     <input
                       type="number"
                       value={docSettings.startNumber}
-                      onChange={(e) => handleDocumentTypeUpdate(docType.key, 'startNumber', parseInt(e.target.value) || 1)}
+                      onChange={(e) => handleStartNumberChange(docType.key, e.target.value)}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       min="1"
                     />
-                    <p className="text-xs text-gray-500 mt-1">
-                      Utilisé lors de la réinitialisation
-                    </p>
                   </div>
                 </>
               ) : (
-                // Regular inputs for other document types
                 <>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -218,7 +221,7 @@ const NumberingSettings: React.FC<NumberingSettingsProps> = ({ settings, onUpdat
                     <input
                       type="text"
                       value={docSettings.prefix}
-                      onChange={(e) => handleDocumentTypeUpdate(docType.key, 'prefix', e.target.value.toUpperCase())}
+                      onChange={(e) => handleFieldChange(docType.key, 'prefix', e.target.value.toUpperCase())}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       placeholder="JV"
                     />
@@ -230,7 +233,7 @@ const NumberingSettings: React.FC<NumberingSettingsProps> = ({ settings, onUpdat
                     <input
                       type="text"
                       value={docSettings.suffix}
-                      onChange={(e) => handleDocumentTypeUpdate(docType.key, 'suffix', e.target.value)}
+                      onChange={(e) => handleFieldChange(docType.key, 'suffix', e.target.value)}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       placeholder="Optionnel"
                     />
@@ -242,51 +245,23 @@ const NumberingSettings: React.FC<NumberingSettingsProps> = ({ settings, onUpdat
                     <input
                       type="number"
                       value={docSettings.startNumber}
-                      onChange={(e) => handleDocumentTypeUpdate(docType.key, 'startNumber', parseInt(e.target.value) || 1)}
+                      onChange={(e) => handleStartNumberChange(docType.key, e.target.value)}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                       min="1"
                     />
-                    <p className="text-xs text-gray-500 mt-1">
-                      Utilisé lors de la réinitialisation
-                    </p>
                   </div>
                 </>
               )}
             </div>
 
-            <div className="mt-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Remise à zéro automatique
-              </label>
-              <select
-                value={docSettings.resetPeriod}
-                onChange={(e) => handleDocumentTypeUpdate(docType.key, 'resetPeriod', e.target.value as any)}
-                className="w-full max-w-xs px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="never">Jamais</option>
-                <option value="yearly">Chaque année (1er janvier)</option>
-                <option value="monthly">Chaque mois (1er du mois)</option>
-              </select>
-            </div>
-
-            {/* Aperçu du format */}
             <div className="mt-6 bg-gray-50 rounded-lg p-4">
               <h4 className="font-medium text-gray-900 mb-3">Aperçu du format</h4>
               <div className="flex items-center justify-center">
                 <div className="bg-white border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-                  {loading[docType.key] ? (
-                    <div className="animate-pulse">
-                      <div className="h-8 bg-gray-200 rounded w-48"></div>
-                      <p className="text-sm text-gray-500 mt-2">Chargement...</p>
-                    </div>
-                  ) : (
-                    <>
-                      <span className="text-3xl font-mono font-bold text-blue-600">
-                        {previewNumber}
-                      </span>
-                      <p className="text-sm text-gray-500 mt-2">Prochain numéro</p>
-                    </>
-                  )}
+                  <span className="text-3xl font-mono font-bold text-blue-600">
+                    {previewNumber}
+                  </span>
+                  <p className="text-sm text-gray-500 mt-2">Prochain numéro</p>
                 </div>
               </div>
             </div>

@@ -6,15 +6,6 @@ import { documentNumberingService } from './documentNumberingService';
 class SalesJournalService {
   private readonly TABLE_NAME = 'sales_journal';
 
-  private async ensureAuthenticated(): Promise<string> {
-    const { data: { user }, error } = await supabase.auth.getUser();
-    console.log('Auth check:', { user, error });
-    if (error || !user) {
-      throw new Error('User must be authenticated to perform this operation');
-    }
-    return user.id;
-  }
-
   private mapDatabaseToSalesJournal(row: any): SalesJournal {
     return {
       id: row.id,
@@ -30,9 +21,19 @@ class SalesJournalService {
   }
 
   private async mapSalesJournalToDatabase(journal: SalesJournal): Promise<any> {
-    // Convert DD/MM/YYYY to YYYY-MM-DD for database storage
-    const [day, month, year] = journal.date.split('/');
-    const isoDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+    let isoDate = journal.date;
+
+    // Check if date is in DD/MM/YYYY format
+    if (journal.date.includes('/')) {
+      const [day, month, year] = journal.date.split('/');
+      if (day && month && year) {
+        isoDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+      }
+    }
+    // If date is already in YYYY-MM-DD format, use it as is
+    else if (!journal.date.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      throw new Error(`Invalid date format: ${journal.date}. Expected DD/MM/YYYY or YYYY-MM-DD`);
+    }
 
     return {
       id: journal.id,
@@ -111,10 +112,26 @@ class SalesJournalService {
     }
   }
 
+  async generateJournalNumber(journalId: string): Promise<string> {
+    try {
+      return await documentNumberingService.generateNumber('SALES_JOURNAL', undefined, journalId);
+    } catch (error) {
+      console.error('Error generating journal number:', error);
+      throw error;
+    }
+  }
+
+  async previewNextJournalNumber(year?: number): Promise<string> {
+    try {
+      return await documentNumberingService.generatePreviewNumber('SALES_JOURNAL', year);
+    } catch (error) {
+      console.error('Error generating preview number:', error);
+      throw error;
+    }
+  }
+
   async saveSalesJournal(journal: SalesJournal): Promise<SalesJournal> {
     try {
-      await this.ensureAuthenticated();
-
       const journalData = await this.mapSalesJournalToDatabase(journal);
 
       if (!journal.id) {
@@ -122,11 +139,7 @@ class SalesJournalService {
 
         // Generate journal number if not provided
         if (!journal.number) {
-          journalData.number = await documentNumberingService.generateNumber(
-            'SALES_JOURNAL',
-            undefined,
-            journalData.id
-          );
+          journalData.number = await this.generateJournalNumber(journalData.id);
         }
       }
 
@@ -150,8 +163,13 @@ class SalesJournalService {
 
   async deleteSalesJournal(journalId: string): Promise<void> {
     try {
-      await this.ensureAuthenticated();
+      // Get the journal to get its number
+      const journal = await this.getSalesJournalById(journalId);
+      if (!journal) {
+        throw new Error('Journal not found');
+      }
 
+      // Delete the journal
       const { error } = await supabase
         .from(this.TABLE_NAME)
         .delete()
@@ -160,6 +178,16 @@ class SalesJournalService {
       if (error) {
         console.error('Error deleting sales journal:', error);
         throw error;
+      }
+
+      // Delete the document number if it exists
+      if (journal.number) {
+        try {
+          await documentNumberingService.deleteNumber(journal.number);
+        } catch (error) {
+          console.error('Error deleting journal number:', error);
+          // Continue even if document number deletion fails
+        }
       }
     } catch (error) {
       console.error('Error deleting sales journal:', error);
@@ -337,20 +365,30 @@ class SalesJournalService {
   async validateJournal(journalId: string): Promise<void> {
     try {
       const journal = await this.getSalesJournalById(journalId);
-      if (journal && journal.status === 'draft') {
-        journal.status = 'validated';
-        await this.saveSalesJournal(journal);
+      if (!journal) {
+        throw new Error(`Journal with ID ${journalId} not found`);
       }
+
+      if (journal.status !== 'draft') {
+        throw new Error(`Journal ${journal.number} is already validated`);
+      }
+
+      // Check if another journal exists for the same date
+      const existingJournal = await this.getSalesJournalByDate(journal.date);
+      if (existingJournal && existingJournal.id !== journal.id) {
+        throw new Error(`Another journal already exists for date ${journal.date}`);
+      }
+
+      journal.status = 'validated';
+      await this.saveSalesJournal(journal);
     } catch (error) {
       console.error('Error validating journal:', error);
-      throw error;
+      throw error instanceof Error ? error : new Error('Unknown error occurred while validating journal');
     }
   }
 
   async getJournalsForDateRange(startDate: string, endDate: string): Promise<SalesJournal[]> {
     try {
-      await this.ensureAuthenticated();
-
       const { data, error } = await supabase
         .from(this.TABLE_NAME)
         .select('*')

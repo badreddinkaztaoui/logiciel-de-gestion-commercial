@@ -148,10 +148,11 @@ const SalesJournalComponent: React.FC = () => {
     if (window.confirm(`Valider le journal ${journal.number} ? Cette action est irréversible.`)) {
       try {
         await salesJournalService.validateJournal(journal.id);
+        toast.success('Journal validé avec succès');
         await loadJournals();
       } catch (error) {
         console.error('Error validating journal:', error);
-        alert('Erreur lors de la validation du journal');
+        toast.error(error instanceof Error ? error.message : 'Erreur lors de la validation du journal');
       }
     }
   };

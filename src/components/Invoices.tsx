@@ -13,6 +13,7 @@ import {
   X,
   Loader2
 } from 'lucide-react';
+import { toast, Toaster } from 'react-hot-toast';
 import { invoiceService } from '../services/invoiceService';
 import { Invoice } from '../types';
 import { formatCurrency, formatDate } from '../utils/formatters';
@@ -50,6 +51,7 @@ const Invoices: React.FC = () => {
       const invoiceStats = await invoiceService.getInvoiceStats();
       setStats(invoiceStats);
     } catch (error) {
+      toast.error('Erreur lors du chargement des factures');
       console.error('Error loading invoices:', error);
     } finally {
       setLoading(false);
@@ -93,8 +95,25 @@ const Invoices: React.FC = () => {
       try {
         await invoiceService.deleteInvoice(id);
         setInvoices(invoices.filter(invoice => invoice.id !== id));
-      } catch (error) {
+        toast.success('Facture supprimée avec succès');
+      } catch (error: any) {
         console.error('Error deleting invoice:', error);
+
+        // If the error is about WooCommerce link, offer to cancel instead
+        if (error.message && error.message.includes('WooCommerce')) {
+          if (confirm(error.message + '\n\nVoulez-vous annuler cette facture à la place ?')) {
+            try {
+              const updatedInvoice = await invoiceService.cancelInvoice(id);
+              setInvoices(invoices.map(inv => inv.id === id ? updatedInvoice : inv));
+              toast.success('Facture annulée avec succès');
+            } catch (cancelError) {
+              toast.error('Erreur lors de l\'annulation de la facture');
+              console.error('Error cancelling invoice:', cancelError);
+            }
+          }
+        } else {
+          toast.error('Erreur lors de la suppression de la facture');
+        }
       }
     }
   };
@@ -106,8 +125,10 @@ const Invoices: React.FC = () => {
         const updatedInvoice = { ...invoice, status: newStatus };
         await invoiceService.saveInvoice(updatedInvoice);
         setInvoices(invoices.map(inv => inv.id === id ? updatedInvoice : inv));
+        toast.success('Statut de la facture mis à jour');
       }
     } catch (error) {
+      toast.error('Erreur lors de la mise à jour du statut');
       console.error('Error updating invoice status:', error);
     }
   };
@@ -118,6 +139,7 @@ const Invoices: React.FC = () => {
       case 'sent': return 'bg-blue-100 text-blue-800';
       case 'paid': return 'bg-green-100 text-green-800';
       case 'overdue': return 'bg-red-100 text-red-800';
+      case 'cancelled': return 'bg-yellow-100 text-yellow-800';
       default: return 'bg-gray-100 text-gray-800';
     }
   };
@@ -128,6 +150,7 @@ const Invoices: React.FC = () => {
       case 'sent': return 'Envoyée';
       case 'paid': return 'Payée';
       case 'overdue': return 'En retard';
+      case 'cancelled': return 'Annulée';
       default: return status;
     }
   };
@@ -152,6 +175,7 @@ const Invoices: React.FC = () => {
 
   return (
     <div className="space-y-8">
+      <Toaster position="top-right" />
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center space-y-4 sm:space-y-0">
         <div>

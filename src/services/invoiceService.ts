@@ -1,26 +1,12 @@
 import { supabase } from '../lib/supabase';
 import { Invoice } from '../types';
 import { documentNumberingService } from './documentNumberingService';
+import { settingsService } from './settingsService';
+import { toast } from 'react-hot-toast';
 
 class InvoiceService {
   private readonly TABLE_NAME = 'invoices';
-  private currentUserId: string | null = null;
 
-  /**
-   * Ensure user is authenticated
-   */
-  private async ensureAuthenticated(): Promise<string> {
-    const { data: { user }, error } = await supabase.auth.getUser();
-    if (error || !user) {
-      throw new Error('User must be authenticated to perform this operation');
-    }
-    this.currentUserId = user.id;
-    return user.id;
-  }
-
-  /**
-   * Convert database row to Invoice type
-   */
   private mapDatabaseToInvoice(row: any): Invoice {
     return {
       id: row.id,
@@ -30,18 +16,17 @@ class InvoiceService {
       date: row.date,
       dueDate: row.due_date,
       status: row.status,
-      customer: row.customer_data || row.customer,
-      items: row.items,
+      customer: row.customer_info,
+      items: row.line_items,
       subtotal: parseFloat(row.subtotal || '0'),
       tax: parseFloat(row.tax_amount || '0'),
       total: parseFloat(row.total || '0'),
-      notes: row.notes
+      notes: row.notes,
+      woocommerceStatus: row.woocommerce_status,
+      lastSyncedAt: row.last_synced_at
     };
   }
 
-  /**
-   * Convert Invoice type to database row
-   */
   private mapInvoiceToDatabase(invoice: Invoice): any {
     return {
       id: invoice.id,
@@ -51,13 +36,15 @@ class InvoiceService {
       date: invoice.date,
       due_date: invoice.dueDate,
       status: invoice.status,
-      customer_data: invoice.customer,
-      items: invoice.items,
+      customer_info: invoice.customer,
+      line_items: invoice.items,
       subtotal: invoice.subtotal,
       tax_amount: invoice.tax,
       total: invoice.total,
       tax_rate: 20.00,
-      notes: invoice.notes
+      notes: invoice.notes,
+      woocommerce_status: invoice.woocommerceStatus,
+      last_synced_at: invoice.lastSyncedAt || new Date().toISOString()
     };
   }
 
@@ -124,24 +111,44 @@ class InvoiceService {
     }
   }
 
+  async generateInvoiceNumber(orderId?: number): Promise<string> {
+    try {
+      return await documentNumberingService.generateNumber('INVOICE', orderId);
+    } catch (error) {
+      console.error('Error generating invoice number:', error);
+      throw error;
+    }
+  }
+
+  async previewNextInvoiceNumber(year?: number): Promise<string> {
+    try {
+      return await documentNumberingService.generatePreviewNumber('INVOICE', year);
+    } catch (error) {
+      console.error('Error generating preview number:', error);
+      throw error;
+    }
+  }
+
   async saveInvoice(invoice: Invoice): Promise<Invoice> {
     try {
-      await this.ensureAuthenticated();
-
-      const invoiceData = this.mapInvoiceToDatabase(invoice);
-
-      if (!invoice.id) {
-        invoiceData.id = crypto.randomUUID();
-
-        // Generate invoice number if not provided
-        if (!invoice.number) {
-          invoiceData.number = await documentNumberingService.generateNumber(
-            'INVOICE',
-            invoice.orderId
-          );
+      // Generate new number for new invoices before mapping to database
+      if (!invoice.id || !invoice.number) {
+        try {
+          invoice.number = await this.generateInvoiceNumber(invoice.orderId);
+        } catch (error) {
+          console.error('Error generating invoice number:', error);
+          throw error;
         }
       }
 
+      const invoiceData = this.mapInvoiceToDatabase(invoice);
+
+      // For new invoices
+      if (!invoice.id) {
+        invoiceData.id = crypto.randomUUID();
+      }
+
+      // Use upsert instead of insert/update to handle both cases
       const { data, error } = await supabase
         .from(this.TABLE_NAME)
         .upsert(invoiceData)
@@ -153,6 +160,10 @@ class InvoiceService {
         throw error;
       }
 
+      if (!data) {
+        throw new Error('No data returned after saving invoice');
+      }
+
       return this.mapDatabaseToInvoice(data);
     } catch (error) {
       console.error('Error saving invoice:', error);
@@ -162,19 +173,101 @@ class InvoiceService {
 
   async deleteInvoice(invoiceId: string): Promise<void> {
     try {
-      await this.ensureAuthenticated();
+      // First, get the invoice to check if it exists and get its number
+      const { data: invoice, error: fetchError } = await supabase
+        .from(this.TABLE_NAME)
+        .select('number, woocommerce_order_id')
+        .eq('id', invoiceId)
+        .single();
 
-      const { error } = await supabase
+      if (fetchError) {
+        if (fetchError.code === 'PGRST116') {
+          throw new Error('Invoice not found');
+        }
+        console.error('Error fetching invoice for deletion:', fetchError);
+        throw fetchError;
+      }
+
+      if (!invoice) {
+        throw new Error('Invoice not found');
+      }
+
+      // Check if invoice is linked to a WooCommerce order
+      if (invoice.woocommerce_order_id && invoice.woocommerce_order_id > 0) {
+        throw new Error(
+          'Cette facture est liée à une commande WooCommerce (#' +
+          invoice.woocommerce_order_id +
+          '). Pour des raisons de cohérence des données, elle ne peut pas être supprimée. ' +
+          'Vous pouvez la marquer comme "annulée" à la place.'
+        );
+      }
+
+      // Delete the invoice
+      const { error: deleteError } = await supabase
         .from(this.TABLE_NAME)
         .delete()
         .eq('id', invoiceId);
 
-      if (error) {
-        console.error('Error deleting invoice:', error);
-        throw error;
+      if (deleteError) {
+        console.error('Error deleting invoice:', deleteError);
+        throw deleteError;
+      }
+
+      // Delete the document number entry if it exists
+      if (invoice.number) {
+        try {
+          await documentNumberingService.deleteNumber(invoice.number);
+        } catch (error) {
+          toast.error('Erreur lors de la suppression du numéro de document');
+          // Continue even if document number deletion fails
+        }
+      }
+
+      console.log(`Successfully deleted invoice ${invoiceId}`);
+    } catch (error) {
+      console.error('Error in deleteInvoice:', error);
+      throw error;
+    }
+  }
+
+  async cancelInvoice(invoiceId: string): Promise<Invoice> {
+    try {
+      // Get the current invoice
+      const invoice = await this.getInvoiceById(invoiceId);
+      if (!invoice) {
+        throw new Error('Invoice not found');
+      }
+
+      // Update the invoice status to cancelled
+      const updatedInvoice: Invoice = {
+        ...invoice,
+        status: 'cancelled',
+        notes: (invoice.notes ? invoice.notes + '\n' : '') +
+          `Facture annulée le ${new Date().toLocaleDateString()}`
+      };
+
+      // Save the updated invoice
+      const result = await this.saveInvoice(updatedInvoice);
+      console.log(`Successfully cancelled invoice ${invoiceId}`);
+      return result;
+    } catch (error) {
+      console.error('Error cancelling invoice:', error);
+      throw error;
+    }
+  }
+
+  async syncWithWooCommerce(orderId: number, woocommerceStatus: string): Promise<void> {
+    try {
+      const invoice = await this.getInvoiceByOrderId(orderId);
+      if (invoice) {
+        await this.saveInvoice({
+          ...invoice,
+          woocommerceStatus,
+          lastSyncedAt: new Date().toISOString()
+        });
       }
     } catch (error) {
-      console.error('Error deleting invoice:', error);
+      console.error('Error syncing invoice with WooCommerce:', error);
       throw error;
     }
   }
