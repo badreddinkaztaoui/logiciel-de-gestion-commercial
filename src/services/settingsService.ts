@@ -17,10 +17,8 @@ export interface CompanySettings {
 }
 
 interface DocumentNumberingSettings {
-  prefix: string;
   startNumber: number;
   currentNumber: number;
-  suffix: string;
   resetPeriod: 'never' | 'yearly' | 'monthly';
 }
 
@@ -130,45 +128,33 @@ class SettingsService {
     },
     numbering: {
       INVOICE: {
-        prefix: 'FAC',
         startNumber: 1,
         currentNumber: 1,
-        suffix: '',
         resetPeriod: 'yearly'
       },
       DELIVERY: {
-        prefix: 'BL',
         startNumber: 1,
         currentNumber: 1,
-        suffix: '',
         resetPeriod: 'yearly'
       },
       RETURN: {
-        prefix: 'BR',
         startNumber: 1,
         currentNumber: 1,
-        suffix: '',
         resetPeriod: 'yearly'
       },
       QUOTE: {
-        prefix: 'DEV',
         startNumber: 1,
         currentNumber: 1,
-        suffix: '',
         resetPeriod: 'yearly'
       },
       SALES_JOURNAL: {
-        prefix: 'JV',
         startNumber: 1,
         currentNumber: 1,
-        suffix: '',
         resetPeriod: 'yearly'
       },
       PURCHASE_ORDER: {
-        prefix: 'BC',
         startNumber: 1,
         currentNumber: 1,
-        suffix: '',
         resetPeriod: 'yearly'
       }
     },
@@ -233,7 +219,6 @@ class SettingsService {
 
   async getSettings(): Promise<AllSettings> {
     try {
-      // Return cached settings if available
       if (this.settingsCache) {
         return this.settingsCache;
       }
@@ -241,7 +226,6 @@ class SettingsService {
       const userId = await this.ensureAuthenticated();
 
       try {
-        // First try to get existing settings
         const { data, error } = await supabase
           .from(this.TABLE_NAME)
           .select('*')
@@ -249,7 +233,6 @@ class SettingsService {
           .maybeSingle();
 
         if (error) {
-          // If table doesn't exist, create it and return defaults
           if (error.code === '42P01') {
             console.warn('Settings table does not exist, creating it...');
             await this.createSettingsTableIfNotExists();
@@ -260,7 +243,6 @@ class SettingsService {
           throw error;
         }
 
-        // If no settings found, create default settings
         if (!data) {
           console.log('Creating default settings for user');
           await this.saveSettings(this.defaultSettings);
@@ -268,7 +250,6 @@ class SettingsService {
           return this.defaultSettings;
         }
 
-        // Merge with defaults to ensure all properties exist
         const settings = data?.settings_data || {};
         const merged = {
           company: { ...this.defaultSettings.company, ...settings.company },
@@ -291,7 +272,6 @@ class SettingsService {
         return merged;
       } catch (error) {
         console.error('Error fetching settings:', error);
-        // Create default settings if there was an error
         await this.saveSettings(this.defaultSettings);
         this.settingsCache = this.defaultSettings;
         return this.defaultSettings;
@@ -307,7 +287,6 @@ class SettingsService {
     try {
       const userId = await this.ensureAuthenticated();
 
-      // Try to create the table if it doesn't exist
       await this.createSettingsTableIfNotExists();
 
       const { error } = await supabase
@@ -325,7 +304,6 @@ class SettingsService {
         throw error;
       }
 
-      // Update cache
       this.settingsCache = settings;
     } catch (error) {
       console.error('Error saving settings:', error);
@@ -333,7 +311,6 @@ class SettingsService {
     }
   }
 
-  // Create settings table if it doesn't exist
   private async createSettingsTableIfNotExists(): Promise<void> {
     try {
       const { error } = await supabase.rpc('create_settings_table');
@@ -422,43 +399,44 @@ class SettingsService {
     await this.saveSettings(settings);
   }
 
-  // Generate document numbers using atomic database operation
   async getNextDocumentNumber(
     documentType: 'INVOICE' | 'DELIVERY' | 'RETURN' | 'QUOTE' | 'SALES_JOURNAL' | 'PURCHASE_ORDER',
     preview: boolean = true
   ): Promise<string> {
     try {
-      const userId = await this.ensureAuthenticated();
-
-      // Get current settings
       const settings = await this.getNumberingSettings();
       const docSettings = settings[documentType];
 
-      // Get current number
       const nextNumber = docSettings.currentNumber;
 
-      // Initialize formatted number variable
       let formattedNumber: string;
 
-      // Special format for sales journal and invoice
-      if (documentType === 'SALES_JOURNAL') {
-        const currentYear = new Date().getFullYear();
-        const paddedNumber = nextNumber.toString().padStart(4, '0');
-        formattedNumber = `F A${currentYear}${paddedNumber}`;
-      } else if (documentType === 'INVOICE') {
-        const currentYear = new Date().getFullYear();
-        const paddedNumber = nextNumber.toString().padStart(4, '0');
-        formattedNumber = `F A${currentYear}${paddedNumber}`;
-      } else {
-        // Format the number according to settings for other document types
-        if (docSettings.suffix) {
-          formattedNumber = `${docSettings.prefix}-${docSettings.suffix}${nextNumber}`;
-        } else {
-          formattedNumber = `${docSettings.prefix}-${nextNumber.toString().padStart(6, '0')}`;
-        }
+      const currentYear = new Date().getFullYear();
+      const paddedNumber = nextNumber.toString().padStart(4, '0');
+
+      switch (documentType) {
+        case 'SALES_JOURNAL':
+          formattedNumber = `F G${currentYear}${paddedNumber}`;
+          break;
+        case 'INVOICE':
+          formattedNumber = `F A${currentYear}${paddedNumber}`;
+          break;
+        case 'QUOTE':
+          formattedNumber = `F D${currentYear}${paddedNumber}`;
+          break;
+        case 'DELIVERY':
+          formattedNumber = `F L${currentYear}${paddedNumber}`;
+          break;
+        case 'RETURN':
+          formattedNumber = `F R${currentYear}${paddedNumber}`;
+          break;
+        case 'PURCHASE_ORDER':
+          formattedNumber = `F PO${currentYear}${paddedNumber}`;
+          break;
+        default:
+          formattedNumber = `DOC-${paddedNumber}`;
       }
 
-      // Only increment if not preview
       if (!preview) {
         await this.updateNumberingSettings({
           [documentType]: { ...docSettings, currentNumber: nextNumber + 1 }
@@ -469,51 +447,40 @@ class SettingsService {
     } catch (error) {
       console.error('Error getting next document number:', error);
 
-      // Fallback to timestamp-based generation
       const timestamp = Date.now().toString().slice(-6);
-      let prefix = 'DOC';
-
-      // Special format for sales journal and invoice even in fallback
-      if (documentType === 'SALES_JOURNAL' || documentType === 'INVOICE') {
-        const currentYear = new Date().getFullYear();
-        return `F A${currentYear}${timestamp}`;
-      }
+      const currentYear = new Date().getFullYear();
 
       switch (documentType) {
-        case 'DELIVERY':
-          prefix = 'BL';
-          break;
-        case 'RETURN':
-          prefix = 'BR';
-          break;
+        case 'SALES_JOURNAL':
+          return `F G${currentYear}${timestamp}`;
+        case 'INVOICE':
+          return `F A${currentYear}${timestamp}`;
         case 'QUOTE':
-          prefix = 'DEV';
-          break;
+          return `F D${currentYear}${timestamp}`;
+        case 'DELIVERY':
+          return `F L${currentYear}${timestamp}`;
+        case 'RETURN':
+          return `F R${currentYear}${timestamp}`;
         case 'PURCHASE_ORDER':
-          prefix = 'BC';
-          break;
+          return `F PO${currentYear}${timestamp}`;
+        default:
+          return `DOC-${timestamp}`;
       }
-
-      return `${prefix}-${timestamp}`;
     }
   }
 
-  // Get the next document number and increment it (for actual document creation)
   async getAndIncrementDocumentNumber(
     documentType: 'INVOICE' | 'DELIVERY' | 'RETURN' | 'QUOTE' | 'SALES_JOURNAL' | 'PURCHASE_ORDER'
   ): Promise<string> {
     return this.getNextDocumentNumber(documentType, false);
   }
 
-  // Legacy method for backward compatibility
   async getNextInvoiceNumber(): Promise<string> {
     return this.getAndIncrementDocumentNumber('INVOICE');
   }
 
-  // Check and reset numbering based on period
   async checkAndResetNumbering(): Promise<void> {
     try {
-      // Skip the check if the function doesn't exist
       const { error } = await supabase.rpc('check_reset_document_numbering');
       if (error) {
         if (error.code === 'PGRST202') {
@@ -522,7 +489,6 @@ class SettingsService {
         }
         console.error('Error checking numbering reset:', error);
       } else {
-        // Clear settings cache since it might have been updated
         this.settingsCache = null;
       }
     } catch (error) {
@@ -530,13 +496,11 @@ class SettingsService {
     }
   }
 
-  // Export settings
   async exportSettings(): Promise<string> {
     const settings = await this.getSettings();
     return JSON.stringify(settings, null, 2);
   }
 
-  // Import settings
   async importSettings(settingsJson: string): Promise<boolean> {
     try {
       const settings = JSON.parse(settingsJson);
@@ -548,12 +512,10 @@ class SettingsService {
     }
   }
 
-  // Reset to default settings
   async resetToDefaults(): Promise<void> {
     await this.saveSettings(this.defaultSettings);
   }
 
-  // Clear cache (useful when settings are updated externally)
   clearCache(): void {
     this.settingsCache = null;
   }

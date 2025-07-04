@@ -1,12 +1,10 @@
 import { supabase } from '../lib/supabase';
 import { ReturnNote } from '../types';
+import { documentNumberingService } from './documentNumberingService';
 
 class ReturnNoteService {
   private readonly TABLE_NAME = 'return_notes';
 
-  /**
-   * Ensure user is authenticated
-   */
   private async ensureAuthenticated(): Promise<string> {
     const { data: { user }, error } = await supabase.auth.getUser();
     if (error || !user) {
@@ -15,39 +13,21 @@ class ReturnNoteService {
     return user.id;
   }
 
-  /**
-   * Convert database row to ReturnNote type
-   */
-  private mapDatabaseToReturnNote(row: any): ReturnNote {
+  private mapDatabaseToReturnNote(data: any): ReturnNote {
     return {
-      id: row.id,
-      number: row.number,
-      orderId: row.order_id,
-      date: row.date,
-      reason: row.reason,
-      status: row.status,
-      customer: row.customer,
-      items: row.items,
-      refundAmount: parseFloat(row.refund_amount || '0'),
-      notes: row.notes
-    };
-  }
-
-  /**
-   * Convert ReturnNote type to database row
-   */
-  private mapReturnNoteToDatabase(returnNote: ReturnNote): any {
-    return {
-      id: returnNote.id,
-      number: returnNote.number,
-      order_id: returnNote.orderId,
-      date: returnNote.date,
-      reason: returnNote.reason,
-      status: returnNote.status,
-      customer: returnNote.customer,
-      items: returnNote.items,
-      refund_amount: returnNote.refundAmount,
-      notes: returnNote.notes
+      id: data.id,
+      number: data.number,
+      invoice_id: data.invoice_id,
+      delivery_note_id: data.delivery_note_id,
+      customer_id: data.customer_id,
+      customer_data: data.customer_data,
+      date: data.date,
+      status: data.status,
+      items: data.items || [],
+      reason: data.reason,
+      notes: data.notes,
+      created_at: data.created_at,
+      updated_at: data.updated_at
     };
   }
 
@@ -72,7 +52,7 @@ class ReturnNoteService {
     }
   }
 
-  async getReturnNoteById(id: string): Promise<ReturnNote | null> {
+  async getReturnNote(id: string): Promise<ReturnNote | null> {
     try {
       await this.ensureAuthenticated();
 
@@ -83,55 +63,82 @@ class ReturnNoteService {
         .single();
 
       if (error) {
-        if (error.code === 'PGRST116') {
-          return null;
-        }
+        console.error('Error fetching return note:', error);
         throw error;
       }
 
       return data ? this.mapDatabaseToReturnNote(data) : null;
     } catch (error) {
-      console.error('Error getting return note by ID:', error);
+      console.error('Error loading return note:', error);
       return null;
     }
   }
 
-  async saveReturnNote(returnNote: ReturnNote): Promise<ReturnNote> {
+  async createReturnNote(returnNote: Partial<ReturnNote>): Promise<ReturnNote> {
     try {
       await this.ensureAuthenticated();
 
-      const returnNoteData = this.mapReturnNoteToDatabase(returnNote);
-      
-      if (!returnNote.id) {
-        returnNoteData.id = crypto.randomUUID();
-      }
+      // Get next return note number
+      const number = await documentNumberingService.generateNumber('RETURN');
 
       const { data, error } = await supabase
         .from(this.TABLE_NAME)
-        .upsert(returnNoteData)
+        .insert([{
+          ...returnNote,
+          number,
+          status: returnNote.status || 'draft',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        }])
         .select()
         .single();
 
       if (error) {
-        console.error('Error saving return note:', error);
+        console.error('Error creating return note:', error);
         throw error;
       }
 
       return this.mapDatabaseToReturnNote(data);
     } catch (error) {
-      console.error('Error saving return note:', error);
+      console.error('Error creating return note:', error);
       throw error;
     }
   }
 
-  async deleteReturnNote(returnNoteId: string): Promise<void> {
+  async updateReturnNote(id: string, returnNote: Partial<ReturnNote>): Promise<ReturnNote> {
+    try {
+      await this.ensureAuthenticated();
+
+      const { data, error } = await supabase
+        .from(this.TABLE_NAME)
+        .update({
+          ...returnNote,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) {
+        console.error('Error updating return note:', error);
+        throw error;
+      }
+
+      return this.mapDatabaseToReturnNote(data);
+    } catch (error) {
+      console.error('Error updating return note:', error);
+      throw error;
+    }
+  }
+
+  async deleteReturnNote(id: string): Promise<void> {
     try {
       await this.ensureAuthenticated();
 
       const { error } = await supabase
         .from(this.TABLE_NAME)
         .delete()
-        .eq('id', returnNoteId);
+        .eq('id', id);
 
       if (error) {
         console.error('Error deleting return note:', error);
@@ -143,28 +150,54 @@ class ReturnNoteService {
     }
   }
 
-  async getReturnNoteStats() {
+  async searchReturnNotes(query: string): Promise<ReturnNote[]> {
     try {
-      const returnNotes = await this.getReturnNotes();
-      
-      return {
-        total: returnNotes.length,
-        pending: returnNotes.filter(r => r.status === 'pending').length,
-        approved: returnNotes.filter(r => r.status === 'approved').length,
-        rejected: returnNotes.filter(r => r.status === 'rejected').length,
-        processed: returnNotes.filter(r => r.status === 'processed').length,
-        totalRefundAmount: returnNotes.reduce((sum, r) => sum + (r.refundAmount || 0), 0)
-      };
+      await this.ensureAuthenticated();
+
+      const { data, error } = await supabase
+        .from(this.TABLE_NAME)
+        .select('*')
+        .or(`number.ilike.%${query}%,customer_data->>'name'.ilike.%${query}%`)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error searching return notes:', error);
+        throw error;
+      }
+
+      return (data || []).map(this.mapDatabaseToReturnNote);
     } catch (error) {
-      console.error('Error getting return note stats:', error);
-      return {
-        total: 0,
-        pending: 0,
-        approved: 0,
-        rejected: 0,
-        processed: 0,
-        totalRefundAmount: 0
-      };
+      console.error('Error searching return notes:', error);
+      return [];
+    }
+  }
+
+  async processReturnNote(id: string): Promise<void> {
+    try {
+      const returnNote = await this.getReturnNote(id);
+      if (returnNote) {
+        await this.updateReturnNote(id, {
+          status: 'processed'
+        });
+      }
+    } catch (error) {
+      console.error('Error processing return note:', error);
+      throw error;
+    }
+  }
+
+  async cancelReturnNote(id: string, reason?: string): Promise<void> {
+    try {
+      const returnNote = await this.getReturnNote(id);
+      if (returnNote) {
+        await this.updateReturnNote(id, {
+          status: 'cancelled',
+          notes: reason ? `${returnNote.notes || ''}\n\nAnnulé: ${reason}`.trim() : returnNote.notes
+        });
+      }
+    } catch (error) {
+      console.error('Error cancelling return note:', error);
+      throw error;
     }
   }
 }

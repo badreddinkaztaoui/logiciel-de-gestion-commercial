@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Plus, 
-  Edit, 
-  Eye, 
-  Trash2, 
-  Download,
+import {
+  Plus,
+  Edit,
+  Eye,
+  Trash2,
   Search,
   FileText,
   Clock,
@@ -85,7 +84,11 @@ const Quotes: React.FC = () => {
 
   const handleSaveQuote = async (quote: Quote) => {
     try {
-      await quoteService.saveQuote(quote);
+      if (quote.id) {
+        await quoteService.updateQuote(quote.id, quote);
+      } else {
+        await quoteService.createQuote(quote);
+      }
       await loadQuotes();
       setShowForm(false);
       setEditingQuote(null);
@@ -133,15 +136,15 @@ const Quotes: React.FC = () => {
           return;
         }
       }
-      
+
       // Create invoice data from quote
       const invoiceData = quoteService.convertToInvoice(quote.id);
-      
+
       // Save new invoice
       await invoiceService.saveInvoice(invoiceData);
-      
+
       alert(`Le devis a été converti en facture avec succès !`);
-      
+
       // Redirect to invoices page
       window.location.href = '#invoices';
     } catch (error) {
@@ -167,9 +170,9 @@ const Quotes: React.FC = () => {
     const matchesSearch = quote.number.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          quote.customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          quote.customer.email.toLowerCase().includes(searchTerm.toLowerCase());
-    
+
     const matchesStatus = statusFilter === 'all' || quote.status === statusFilter;
-    
+
     return matchesSearch && matchesStatus;
   });
 
@@ -291,7 +294,7 @@ const Quotes: React.FC = () => {
             className="pl-10 pr-4 py-2 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
           />
         </div>
-        
+
         <div className="md:w-64">
           <select
             value={statusFilter}
@@ -340,7 +343,7 @@ const Quotes: React.FC = () => {
             <tbody className="bg-white divide-y divide-gray-200">
               {filteredQuotes.map((quote) => {
                 const isExpired = isQuoteExpired(quote.validUntil) && quote.status !== 'accepted' && quote.status !== 'rejected';
-                
+
                 return (
                   <tr key={quote.id} className={`hover:bg-gray-50 ${isExpired ? 'bg-yellow-50' : ''}`}>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -439,7 +442,7 @@ const Quotes: React.FC = () => {
             <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">Aucun devis trouvé</h3>
             <p className="text-gray-500 mb-4">
-              {quotes.length === 0 
+              {quotes.length === 0
                 ? "Créez votre premier devis"
                 : "Aucun devis ne correspond à vos critères de recherche"
               }

@@ -1,7 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { Invoice } from '../types';
 import { documentNumberingService } from './documentNumberingService';
-import { settingsService } from './settingsService';
 import { toast } from 'react-hot-toast';
 
 class InvoiceService {
@@ -131,7 +130,6 @@ class InvoiceService {
 
   async saveInvoice(invoice: Invoice): Promise<Invoice> {
     try {
-      // Generate new number for new invoices before mapping to database
       if (!invoice.id || !invoice.number) {
         try {
           invoice.number = await this.generateInvoiceNumber(invoice.orderId);
@@ -143,12 +141,10 @@ class InvoiceService {
 
       const invoiceData = this.mapInvoiceToDatabase(invoice);
 
-      // For new invoices
       if (!invoice.id) {
         invoiceData.id = crypto.randomUUID();
       }
 
-      // Use upsert instead of insert/update to handle both cases
       const { data, error } = await supabase
         .from(this.TABLE_NAME)
         .upsert(invoiceData)
@@ -173,7 +169,6 @@ class InvoiceService {
 
   async deleteInvoice(invoiceId: string): Promise<void> {
     try {
-      // First, get the invoice to check if it exists and get its number
       const { data: invoice, error: fetchError } = await supabase
         .from(this.TABLE_NAME)
         .select('number, woocommerce_order_id')
@@ -192,7 +187,6 @@ class InvoiceService {
         throw new Error('Invoice not found');
       }
 
-      // Check if invoice is linked to a WooCommerce order
       if (invoice.woocommerce_order_id && invoice.woocommerce_order_id > 0) {
         throw new Error(
           'Cette facture est liée à une commande WooCommerce (#' +
@@ -202,7 +196,6 @@ class InvoiceService {
         );
       }
 
-      // Delete the invoice
       const { error: deleteError } = await supabase
         .from(this.TABLE_NAME)
         .delete()
@@ -213,13 +206,11 @@ class InvoiceService {
         throw deleteError;
       }
 
-      // Delete the document number entry if it exists
       if (invoice.number) {
         try {
           await documentNumberingService.deleteNumber(invoice.number);
         } catch (error) {
           toast.error('Erreur lors de la suppression du numéro de document');
-          // Continue even if document number deletion fails
         }
       }
 
@@ -232,13 +223,11 @@ class InvoiceService {
 
   async cancelInvoice(invoiceId: string): Promise<Invoice> {
     try {
-      // Get the current invoice
       const invoice = await this.getInvoiceById(invoiceId);
       if (!invoice) {
         throw new Error('Invoice not found');
       }
 
-      // Update the invoice status to cancelled
       const updatedInvoice: Invoice = {
         ...invoice,
         status: 'cancelled',
@@ -246,7 +235,6 @@ class InvoiceService {
           `Facture annulée le ${new Date().toLocaleDateString()}`
       };
 
-      // Save the updated invoice
       const result = await this.saveInvoice(updatedInvoice);
       console.log(`Successfully cancelled invoice ${invoiceId}`);
       return result;

@@ -23,14 +23,12 @@ class SalesJournalService {
   private async mapSalesJournalToDatabase(journal: SalesJournal): Promise<any> {
     let isoDate = journal.date;
 
-    // Check if date is in DD/MM/YYYY format
     if (journal.date.includes('/')) {
       const [day, month, year] = journal.date.split('/');
       if (day && month && year) {
         isoDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
       }
     }
-    // If date is already in YYYY-MM-DD format, use it as is
     else if (!journal.date.match(/^\d{4}-\d{2}-\d{2}$/)) {
       throw new Error(`Invalid date format: ${journal.date}. Expected DD/MM/YYYY or YYYY-MM-DD`);
     }
@@ -163,13 +161,11 @@ class SalesJournalService {
 
   async deleteSalesJournal(journalId: string): Promise<void> {
     try {
-      // Get the journal to get its number
       const journal = await this.getSalesJournalById(journalId);
       if (!journal) {
         throw new Error('Journal not found');
       }
 
-      // Delete the journal
       const { error } = await supabase
         .from(this.TABLE_NAME)
         .delete()
@@ -180,13 +176,11 @@ class SalesJournalService {
         throw error;
       }
 
-      // Delete the document number if it exists
       if (journal.number) {
         try {
           await documentNumberingService.deleteNumber(journal.number);
         } catch (error) {
           console.error('Error deleting journal number:', error);
-          // Continue even if document number deletion fails
         }
       }
     } catch (error) {
@@ -199,7 +193,6 @@ class SalesJournalService {
     console.log(`Generating sales journal for date: ${date}`);
 
     try {
-      // Parse the input date and convert it to YYYY-MM-DD format
       const [day, month, year] = date.split('/');
       if (!day || !month || !year) {
         console.error('Invalid date format:', date);
@@ -213,7 +206,6 @@ class SalesJournalService {
         formattedDate
       });
 
-      // Get orders specifically for this date
       const ordersForDate = await orderService.getOrdersForDate(formattedDate);
 
       console.log(`Found ${ordersForDate.length} orders for date ${date}`);
@@ -297,13 +289,12 @@ class SalesJournalService {
         .filter(item => item.base > 0)
         .sort((a, b) => a.rate - b.rate);
 
-      // Get the next number using the settings service
       const salesJournal: SalesJournal = {
         id: crypto.randomUUID(),
         number: await documentNumberingService.generateNumber(
           'SALES_JOURNAL',
           undefined,
-          crypto.randomUUID() // Generate a temporary ID for the journal
+          crypto.randomUUID()
         ),
         date: date,
         createdAt: new Date().toISOString(),
@@ -373,7 +364,6 @@ class SalesJournalService {
         throw new Error(`Journal ${journal.number} is already validated`);
       }
 
-      // Check if another journal exists for the same date
       const existingJournal = await this.getSalesJournalByDate(journal.date);
       if (existingJournal && existingJournal.id !== journal.id) {
         throw new Error(`Another journal already exists for date ${journal.date}`);

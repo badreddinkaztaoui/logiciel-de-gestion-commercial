@@ -1,16 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Plus, 
-  Edit, 
-  Eye, 
-  Trash2, 
+import {
+  Plus,
+  Edit,
+  Eye,
+  Trash2,
   Search,
   Filter,
   Building,
-  Mail,
-  Phone,
-  MapPin,
-  User,
   Calendar,
   CheckCircle,
   Clock,
@@ -19,7 +15,6 @@ import {
   TrendingUp,
   Receipt,
   Truck,
-  Package
 } from 'lucide-react';
 import { purchaseOrderService } from '../services/purchaseOrderService';
 import { supplierService } from '../services/supplierService';
@@ -55,7 +50,7 @@ const PurchaseOrders: React.FC = () => {
       setLoading(true);
       const savedOrders = await purchaseOrderService.getPurchaseOrders();
       setPurchaseOrders(savedOrders);
-      
+
       const savedSuppliers = await supplierService.getSuppliers();
       setSuppliers(savedSuppliers);
     } catch (error) {
@@ -68,22 +63,19 @@ const PurchaseOrders: React.FC = () => {
   const filterOrders = () => {
     let filtered = purchaseOrders;
 
-    // Filter by search term
     if (searchTerm) {
       filtered = filtered.filter(order =>
         order.number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        order.items.some(item => 
+        order.items.some(item =>
           item.description.toLowerCase().includes(searchTerm.toLowerCase())
         )
       );
     }
 
-    // Filter by status
     if (statusFilter !== 'all') {
       filtered = filtered.filter(order => order.status === statusFilter);
     }
 
-    // Filter by supplier
     if (supplierFilter !== 'all') {
       filtered = filtered.filter(order => order.supplierId === supplierFilter);
     }
@@ -151,7 +143,7 @@ const PurchaseOrders: React.FC = () => {
     switch (status) {
       case 'draft':
         return <Edit className="w-4 h-4 text-gray-500" />;
-      case 'ordered':
+      case 'pending':
         return <Clock className="w-4 h-4 text-blue-500" />;
       case 'partial':
         return <TrendingUp className="w-4 h-4 text-orange-500" />;
@@ -167,7 +159,7 @@ const PurchaseOrders: React.FC = () => {
   const getStatusBadge = (status: string) => {
     const colorMap = {
       draft: 'bg-gray-100 text-gray-800',
-      ordered: 'bg-blue-100 text-blue-800',
+      pending: 'bg-blue-100 text-blue-800',
       partial: 'bg-orange-100 text-orange-800',
       complete: 'bg-green-100 text-green-800',
       cancelled: 'bg-red-100 text-red-800'
@@ -175,7 +167,7 @@ const PurchaseOrders: React.FC = () => {
 
     const labelMap = {
       draft: 'Brouillon',
-      ordered: 'Commandé',
+      pending: 'Commandé',
       partial: 'Partiel',
       complete: 'Terminé',
       cancelled: 'Annulé'
@@ -195,14 +187,13 @@ const PurchaseOrders: React.FC = () => {
   };
 
   const canReceiveItems = (order: PurchaseOrder) => {
-    // Only ordered or partial orders can receive items
-    return order.status === 'ordered' || order.status === 'partial';
+    return order.status === 'pending' || order.status === 'partial';
   };
 
   const orderStats = {
     total: purchaseOrders.length,
     draft: purchaseOrders.filter(o => o.status === 'draft').length,
-    ordered: purchaseOrders.filter(o => o.status === 'ordered').length,
+    pending: purchaseOrders.filter(o => o.status === 'pending').length,
     partial: purchaseOrders.filter(o => o.status === 'partial').length,
     complete: purchaseOrders.filter(o => o.status === 'complete').length,
     totalValue: purchaseOrders.reduce((sum, order) => sum + order.total, 0)
@@ -241,7 +232,6 @@ const PurchaseOrders: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center space-y-4 sm:space-y-0">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Bons de commande</h1>
@@ -274,7 +264,7 @@ const PurchaseOrders: React.FC = () => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-gray-600">Commandés</p>
-              <p className="text-2xl font-bold text-gray-900">{orderStats.ordered}</p>
+              <p className="text-2xl font-bold text-gray-900">{orderStats.pending}</p>
             </div>
             <Clock className="w-8 h-8 text-blue-500" />
           </div>
@@ -329,7 +319,7 @@ const PurchaseOrders: React.FC = () => {
           >
             <option value="all">Tous les statuts</option>
             <option value="draft">Brouillon</option>
-            <option value="ordered">Commandé</option>
+            <option value="pending">Commandé</option>
             <option value="partial">Partiel</option>
             <option value="complete">Terminé</option>
             <option value="cancelled">Annulé</option>
@@ -463,7 +453,7 @@ const PurchaseOrders: React.FC = () => {
             <Receipt className="w-12 h-12 text-gray-400 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">Aucun bon de commande trouvé</h3>
             <p className="text-gray-500 mb-4">
-              {purchaseOrders.length === 0 
+              {purchaseOrders.length === 0
                 ? "Créez votre premier bon de commande avec prix TTC"
                 : "Aucun bon de commande ne correspond à vos critères de recherche"
               }
@@ -559,7 +549,7 @@ const PurchaseOrders: React.FC = () => {
                         const unitPriceHT = item.unitPrice / (1 + taxRate / 100);
                         const taxAmount = item.taxAmount || (unitPriceHT * (taxRate / 100) * item.quantity);
                         const remainingQuantity = item.quantity - (item.received || 0);
-                        
+
                         return (
                           <tr key={item.id}>
                             <td className="px-4 py-2">

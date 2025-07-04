@@ -14,20 +14,27 @@ const NumberingSettings: React.FC<NumberingSettingsProps> = ({ settings, onUpdat
   const [hasChanges, setHasChanges] = useState(false);
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
 
-  // Update local settings when props change
   useEffect(() => {
     setLocalSettings(settings);
   }, [settings]);
 
-  const formatDocumentNumber = (type: keyof INumberingSettings, prefix: string, suffix: string, number: number) => {
-    if (type === 'SALES_JOURNAL') {
-      return `F G${selectedYear}${number.toString().padStart(4, '0')}`;
-    } else if (type === 'INVOICE') {
-      return `F A${selectedYear}${number.toString().padStart(4, '0')}`;
-    } else if (suffix) {
-      return `${prefix}-${suffix}${number}`;
-    } else {
-      return `${prefix}-${number.toString().padStart(6, '0')}`;
+  const formatDocumentNumber = (type: keyof INumberingSettings, number: number) => {
+    const paddedNumber = number.toString().padStart(4, '0');
+    switch (type) {
+      case 'SALES_JOURNAL':
+        return `F G${selectedYear}${paddedNumber}`;
+      case 'INVOICE':
+        return `F A${selectedYear}${paddedNumber}`;
+      case 'QUOTE':
+        return `F D${selectedYear}${paddedNumber}`;
+      case 'DELIVERY':
+        return `F L${selectedYear}${paddedNumber}`;
+      case 'RETURN':
+        return `F R${selectedYear}${paddedNumber}`;
+      case 'PURCHASE_ORDER':
+        return `F PO${selectedYear}${paddedNumber}`;
+      default:
+        return `DOC-${paddedNumber}`;
     }
   };
 
@@ -59,10 +66,8 @@ const NumberingSettings: React.FC<NumberingSettingsProps> = ({ settings, onUpdat
   const handleSave = async () => {
     if (hasChanges) {
       try {
-        // First save the settings
         await settingsService.updateNumberingSettings(localSettings);
 
-        // Then reset numbering if needed for special document types
         for (const docType of documentTypes) {
           if ((docType.key === 'SALES_JOURNAL' || docType.key === 'INVOICE') &&
               localSettings[docType.key].startNumber !== settings[docType.key].startNumber) {
@@ -70,11 +75,9 @@ const NumberingSettings: React.FC<NumberingSettingsProps> = ({ settings, onUpdat
           }
         }
 
-        // Update the parent component's state
         onUpdate(localSettings);
         setHasChanges(false);
 
-        // Show success message
         toast.success('Paramètres de numérotation enregistrés avec succès');
       } catch (error) {
         console.error('Error saving numbering settings:', error);
@@ -87,7 +90,6 @@ const NumberingSettings: React.FC<NumberingSettingsProps> = ({ settings, onUpdat
     if (window.confirm(`Réinitialiser la numérotation pour ${type === 'SALES_JOURNAL' ? 'le journal de vente' : type} ? Cette action est irréversible.`)) {
       try {
         if (type === 'SALES_JOURNAL' || type === 'INVOICE') {
-          // Just reset the numbering without recreating the table
           await documentNumberingService.resetNumbering(type);
         }
 
@@ -109,10 +111,9 @@ const NumberingSettings: React.FC<NumberingSettingsProps> = ({ settings, onUpdat
 
   const getPreviewNumber = (type: keyof INumberingSettings) => {
     const docSettings = localSettings[type];
-    return formatDocumentNumber(type, docSettings.prefix, docSettings.suffix, docSettings.currentNumber);
+    return formatDocumentNumber(type, docSettings.currentNumber);
   };
 
-  // Generate year options (current year +/- 5 years)
   const currentYear = new Date().getFullYear();
   const yearOptions = Array.from({ length: 11 }, (_, i) => currentYear - 5 + i);
 
@@ -183,75 +184,46 @@ const NumberingSettings: React.FC<NumberingSettingsProps> = ({ settings, onUpdat
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {(docType.key === 'SALES_JOURNAL' || docType.key === 'INVOICE') ? (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Année
-                    </label>
-                    <select
-                      value={selectedYear}
-                      onChange={(e) => setSelectedYear(parseInt(e.target.value))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    >
-                      {yearOptions.map(year => (
-                        <option key={year} value={year}>{year}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Numéro de départ
-                    </label>
-                    <input
-                      type="number"
-                      value={docSettings.startNumber}
-                      onChange={(e) => handleStartNumberChange(docType.key, e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      min="1"
-                    />
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Préfixe
-                    </label>
-                    <input
-                      type="text"
-                      value={docSettings.prefix}
-                      onChange={(e) => handleFieldChange(docType.key, 'prefix', e.target.value.toUpperCase())}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      placeholder="JV"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Suffixe
-                    </label>
-                    <input
-                      type="text"
-                      value={docSettings.suffix}
-                      onChange={(e) => handleFieldChange(docType.key, 'suffix', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      placeholder="Optionnel"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Numéro de départ
-                    </label>
-                    <input
-                      type="number"
-                      value={docSettings.startNumber}
-                      onChange={(e) => handleStartNumberChange(docType.key, e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      min="1"
-                    />
-                  </div>
-                </>
-              )}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Année
+                </label>
+                <select
+                  value={selectedYear}
+                  onChange={(e) => setSelectedYear(parseInt(e.target.value))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  {yearOptions.map(year => (
+                    <option key={year} value={year}>{year}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Numéro de départ
+                </label>
+                <input
+                  type="number"
+                  value={docSettings.startNumber}
+                  onChange={(e) => handleStartNumberChange(docType.key, e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  min="1"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Période de réinitialisation
+                </label>
+                <select
+                  value={docSettings.resetPeriod}
+                  onChange={(e) => handleFieldChange(docType.key, 'resetPeriod', e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="never">Jamais</option>
+                  <option value="yearly">Annuelle</option>
+                  <option value="monthly">Mensuelle</option>
+                </select>
+              </div>
             </div>
 
             <div className="mt-6 bg-gray-50 rounded-lg p-4">

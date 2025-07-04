@@ -1,7 +1,7 @@
 import { supabase } from '../lib/supabase';
 import { settingsService } from './settingsService';
 
-export type DocumentType = 'INVOICE' | 'SALES_JOURNAL';
+export type DocumentType = 'INVOICE' | 'SALES_JOURNAL' | 'QUOTE' | 'DELIVERY' | 'RETURN' | 'PURCHASE_ORDER';
 
 interface DocumentNumber {
   id: string;
@@ -21,28 +21,36 @@ interface SequenceInfo {
   nextFormattedNumber: string;
 }
 
-/**
- * Service for managing document number sequences
- * This ensures sequential, non-duplicated document numbers with proper tracking
- */
+const getPrefix = (type: DocumentType) => {
+  switch (type) {
+    case 'QUOTE':
+      return 'F D';
+    case 'DELIVERY':
+      return 'F L';
+    case 'RETURN':
+      return 'F R';
+    case 'PURCHASE_ORDER':
+      return 'F PO';
+    case 'INVOICE':
+      return 'F A';
+    case 'SALES_JOURNAL':
+      return 'F G';
+    default:
+      return '';
+  }
+}
+
 class DocumentNumberingService {
   private readonly TABLE_NAME = 'document_numbers';
 
-  /**
-   * Format a document number based on its type and sequence
-   */
   private formatNumber(type: DocumentType, year: number, sequence: number): string {
     const sequencePadded = sequence.toString().padStart(4, '0');
-    const prefix = type === 'SALES_JOURNAL' ? 'G' : 'A';
-    return `F ${prefix}${year}${sequencePadded}`;
+    const prefix = getPrefix(type);
+    return `${prefix} ${year}${sequencePadded}`;
   }
 
-  /**
-   * Get the current sequence information for a document type
-   */
   private async getCurrentSequenceInfo(type: DocumentType, year: number): Promise<SequenceInfo> {
     try {
-      // Get settings and last used sequence
       const [settings, lastSequence] = await Promise.all([
         settingsService.getNumberingSettings(),
         this.getLastNumber(type, year)
@@ -64,9 +72,6 @@ class DocumentNumberingService {
     }
   }
 
-  /**
-   * Update the current number in settings after generating a new number
-   */
   private async updateSettingsCurrentNumber(type: DocumentType, sequence: number): Promise<void> {
     try {
       const settings = await settingsService.getNumberingSettings();
@@ -84,9 +89,6 @@ class DocumentNumberingService {
     }
   }
 
-  /**
-   * Get the last used sequence number for a document type in a specific year
-   */
   private async getLastNumber(type: DocumentType, year: number): Promise<number> {
     const { data, error } = await supabase
       .from(this.TABLE_NAME)
@@ -105,14 +107,10 @@ class DocumentNumberingService {
     return data?.sequence || 0;
   }
 
-  /**
-   * Reset numbering for a specific document type and year
-   */
   async resetNumbering(type: DocumentType, year?: number): Promise<void> {
     try {
       const targetYear = year || new Date().getFullYear();
 
-      // Delete records for the specific document type and year
       const { error } = await supabase
         .from(this.TABLE_NAME)
         .delete()
@@ -124,14 +122,11 @@ class DocumentNumberingService {
         throw new Error('Failed to reset document numbering');
       }
 
-      // Get settings to ensure we're starting from the correct number
       const settings = await settingsService.getNumberingSettings();
       const startNumber = settings[type].startNumber;
 
-      // Create first sequence with start number
       await this.reserveNumber(type, targetYear, startNumber);
 
-      // Update settings with the next number
       await this.updateSettingsCurrentNumber(type, startNumber);
 
       console.log(`Document numbering reset successfully for ${type} (${targetYear})`);
@@ -141,9 +136,6 @@ class DocumentNumberingService {
     }
   }
 
-  /**
-   * Reserve a specific sequence number
-   */
   private async reserveNumber(type: DocumentType, year: number, sequence: number): Promise<string> {
     const formattedNumber = this.formatNumber(type, year, sequence);
 
@@ -177,15 +169,11 @@ class DocumentNumberingService {
     return formattedNumber;
   }
 
-  /**
-   * Generate a new document number and save it
-   */
   async generateNumber(type: DocumentType, orderId?: number, journalId?: string): Promise<string> {
     try {
       const year = new Date().getFullYear();
       const { currentSequence, formattedNumber } = await this.getCurrentSequenceInfo(type, year);
 
-      // Save the new number with references
       const documentNumber: DocumentNumber = {
         id: crypto.randomUUID(),
         documentType: type,
@@ -217,7 +205,6 @@ class DocumentNumberingService {
         throw error;
       }
 
-      // Update the current number in settings to show the next number
       await this.updateSettingsCurrentNumber(type, currentSequence);
 
       return formattedNumber;
@@ -227,18 +214,12 @@ class DocumentNumberingService {
     }
   }
 
-  /**
-   * Preview the next number without saving it
-   */
   async generatePreviewNumber(type: DocumentType, year?: number): Promise<string> {
     const targetYear = year || new Date().getFullYear();
     const { nextFormattedNumber } = await this.getCurrentSequenceInfo(type, targetYear);
     return nextFormattedNumber;
   }
 
-  /**
-   * Get a document number by order ID
-   */
   async getNumberByOrderId(orderId: number): Promise<string | null> {
     const { data, error } = await supabase
       .from(this.TABLE_NAME)
@@ -254,9 +235,6 @@ class DocumentNumberingService {
     return data?.number || null;
   }
 
-  /**
-   * Get a document number by journal ID
-   */
   async getNumberByJournalId(journalId: string): Promise<string | null> {
     const { data, error } = await supabase
       .from(this.TABLE_NAME)
@@ -272,9 +250,6 @@ class DocumentNumberingService {
     return data?.number || null;
   }
 
-  /**
-   * Validate if a number exists
-   */
   async validateNumber(number: string): Promise<boolean> {
     const { data, error } = await supabase
       .from(this.TABLE_NAME)
@@ -290,9 +265,6 @@ class DocumentNumberingService {
     return !!data;
   }
 
-  /**
-   * Delete a specific document number
-   */
   async deleteNumber(number: string): Promise<void> {
     const { error } = await supabase
       .from(this.TABLE_NAME)
@@ -305,13 +277,8 @@ class DocumentNumberingService {
     }
   }
 
-  /**
-   * Clean up stale reservations
-   * This is useful for cleaning up unconfirmed reservations that may have been abandoned
-   */
   async cleanupStaleReservations(): Promise<void> {
     try {
-      // Delete reservations older than 24 hours that haven't been confirmed
       const { data, error } = await supabase.rpc('cleanup_stale_reservations', {
         p_hours_threshold: 24
       });

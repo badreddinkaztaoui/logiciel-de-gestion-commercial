@@ -1,25 +1,22 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Plus, 
-  Edit, 
-  Eye, 
-  Trash2, 
+import {
+  Plus,
+  Edit,
+  Eye,
+  Trash2,
   Search,
   RotateCcw,
   AlertCircle,
   CheckCircle,
   Clock,
   XCircle,
-  ShoppingCart,
   DollarSign,
-  Package,
-  FileText
 } from 'lucide-react';
 import { orderService } from '../services/orderService';
 import { returnNoteService } from '../services/returnNoteService';
 import { wooCommerceService } from '../services/woocommerce';
 import { ReturnNote, WooCommerceOrder } from '../types';
-import { formatCurrency, formatDate, generateDocumentNumber } from '../utils/formatters';
+import { formatCurrency, formatDate } from '../utils/formatters';
 import ReturnNoteForm from './ReturnNoteForm';
 
 const ReturnNotes: React.FC = () => {
@@ -42,7 +39,7 @@ const ReturnNotes: React.FC = () => {
     try {
       setLoading(true);
       const savedNotes = await returnNoteService.getReturnNotes();
-      const savedOrders = await orderService.getOrders();
+      const { data: savedOrders } = await orderService.getOrders();
       setReturnNotes(savedNotes);
       setOrders(savedOrders);
     } catch (error) {
@@ -53,13 +50,13 @@ const ReturnNotes: React.FC = () => {
   };
 
   const filteredNotes = returnNotes.filter(note => {
-    const matchesSearch = 
+    const matchesSearch =
       note.number.toLowerCase().includes(searchTerm.toLowerCase()) ||
       note.customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       note.customer.email.toLowerCase().includes(searchTerm.toLowerCase());
-    
+
     const matchesStatus = statusFilter === 'all' || note.status === statusFilter;
-    
+
     return matchesSearch && matchesStatus;
   });
 
@@ -87,7 +84,7 @@ const ReturnNotes: React.FC = () => {
     };
 
     const config = statusConfig[status] || { bg: 'bg-gray-100', text: 'text-gray-800', label: status };
-    
+
     return (
       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${config.bg} ${config.text}`}>
         {config.label}
@@ -103,7 +100,7 @@ const ReturnNotes: React.FC = () => {
     };
 
     const config = conditionConfig[condition] || { bg: 'bg-gray-100', text: 'text-gray-800', label: condition };
-    
+
     return (
       <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${config.bg} ${config.text}`}>
         {config.label}
@@ -131,7 +128,11 @@ const ReturnNotes: React.FC = () => {
 
   const handleSaveNote = async (note: ReturnNote) => {
     try {
-      await returnNoteService.saveReturnNote(note);
+      if (note.id) {
+        await returnNoteService.updateReturnNote(note.id, note);
+      } else {
+        await returnNoteService.createReturnNote(note);
+      }
       await loadData();
       setShowForm(false);
       setEditingNote(null);
@@ -160,26 +161,20 @@ const ReturnNotes: React.FC = () => {
     }
   };
 
-  // Check if all items in an order are returned
   const areAllItemsReturned = (orderId: number): boolean => {
-    // Get the original order
     const order = orders.find(o => o.id === orderId);
     if (!order) return false;
 
-    // Get all return notes for this order
-    const orderReturnNotes = returnNotes.filter(note => note.orderId === orderId && 
+    const orderReturnNotes = returnNotes.filter(note => note.orderId === orderId &&
       (note.status === 'approved' || note.status === 'processed'));
-    
-    // If no approved or processed return notes, nothing is returned
+
     if (orderReturnNotes.length === 0) return false;
 
-    // Create a map of product quantities in the original order
     const originalItemQuantities: Record<number, number> = {};
     order.line_items.forEach(item => {
       originalItemQuantities[item.product_id] = (originalItemQuantities[item.product_id] || 0) + item.quantity;
     });
 
-    // Create a map of returned product quantities
     const returnedItemQuantities: Record<number, number> = {};
     orderReturnNotes.forEach(note => {
       note.items.forEach(item => {
@@ -189,13 +184,12 @@ const ReturnNotes: React.FC = () => {
       });
     });
 
-    // Check if all items are returned
     for (const productId in originalItemQuantities) {
       const originalQty = originalItemQuantities[productId];
       const returnedQty = returnedItemQuantities[productId] || 0;
-      
+
       if (returnedQty < originalQty) {
-        return false; // Not all items are returned
+        return false;
       }
     }
 
@@ -206,21 +200,19 @@ const ReturnNotes: React.FC = () => {
     if (window.confirm('Approuver ce bon de retour ? Le stock sera mis à jour automatiquement.')) {
       try {
         setProcessingNote(note.id);
-        
+
         const updatedNote = { ...note, status: 'approved' as const };
-        
-        // Process return updates
+
         await processReturnUpdates(updatedNote);
-        
-        // Save updated note
-        await returnNoteService.saveReturnNote(updatedNote);
-        
+
+        await returnNoteService.updateReturnNote(updatedNote.id, updatedNote);
+
         await loadData();
-        
+
         if (selectedNote?.id === note.id) {
           setSelectedNote(updatedNote);
         }
-        
+
         alert('Bon de retour approuvé avec succès ! Le stock WooCommerce a été mis à jour.');
       } catch (error) {
         console.error('Erreur lors de l\'approbation:', error);
@@ -233,22 +225,21 @@ const ReturnNotes: React.FC = () => {
 
   const handleRejectNote = async (note: ReturnNote) => {
     const reason = window.prompt('Raison du rejet (optionnel):');
-    if (reason !== null) { // User didn't cancel
+    if (reason !== null) {
       try {
         setProcessingNote(note.id);
-        
-        const updatedNote = { 
-          ...note, 
+
+        const updatedNote = {
+          ...note,
           status: 'rejected' as const,
           notes: note.notes ? `${note.notes}\n\nRejeté: ${reason}` : `Rejeté: ${reason}`
         };
-        await returnNoteService.saveReturnNote(updatedNote);
-        
-        // Add note to WooCommerce order if linked
+        await returnNoteService.updateReturnNote(updatedNote.id, updatedNote);
+
         if (note.orderId) {
           try {
             await wooCommerceService.addOrderNote(
-              note.orderId, 
+              note.orderId,
               `Bon de retour ${note.number} rejeté. Raison: ${reason || 'Non spécifiée'}`,
               true
             );
@@ -256,9 +247,9 @@ const ReturnNotes: React.FC = () => {
             console.error('Erreur lors de l\'ajout de la note à la commande:', error);
           }
         }
-        
+
         await loadData();
-        
+
         if (selectedNote?.id === note.id) {
           setSelectedNote(updatedNote);
         }
@@ -274,8 +265,7 @@ const ReturnNotes: React.FC = () => {
   const processReturnUpdates = async (note: ReturnNote) => {
     try {
       console.log('Traitement du retour:', note);
-      
-      // Update stock for items with product IDs (only for new condition items)
+
       for (const item of note.items) {
         if (item.productId && item.condition === 'new') {
           try {
@@ -288,7 +278,6 @@ const ReturnNotes: React.FC = () => {
         }
       }
 
-      // Add note to WooCommerce order
       if (note.orderId) {
         try {
           const noteText = `Bon de retour ${note.number} ${note.status === 'approved' ? 'approuvé' : 'traité'}. Raison: ${note.reason}. Articles retournés: ${note.items.length}`;
@@ -310,47 +299,43 @@ const ReturnNotes: React.FC = () => {
     if (window.confirm('Traiter ce bon de retour ? Cette action mettra à jour le stock WooCommerce et créera un remboursement.')) {
       try {
         setProcessingNote(note.id);
-        
-        // Process return in WooCommerce if order is linked
+
         if (note.orderId) {
-          // Vérifier si tous les articles sont retournés pour mettre à jour le statut
           const shouldUpdateOrderStatus = areAllItemsReturned(note.orderId);
-          
+
           try {
             const results = await wooCommerceService.processReturn(
               note.orderId,
               note.items,
               note.refundAmount || 0,
-              note.reason,
-              shouldUpdateOrderStatus // Nouveau paramètre pour contrôler la mise à jour du statut
+              note.reason || '',
+              shouldUpdateOrderStatus
             );
-            
+
             console.log('Return processed successfully:', results);
-            
+
             if (shouldUpdateOrderStatus) {
               alert('Bon de retour traité avec succès ! Tous les articles ont été retournés, la commande a été marquée comme remboursée dans WooCommerce.');
             } else {
               alert('Bon de retour traité avec succès ! Le statut de la commande n\'a pas été modifié car tous les articles n\'ont pas été retournés.');
             }
-            
+
           } catch (error) {
             console.error('Erreur WooCommerce:', error);
-            // Continue with local update even if WooCommerce fails
           }
         } else {
-          // If no order linked, just update stock
           await processReturnUpdates(note);
         }
-        
+
         const updatedNote = { ...note, status: 'processed' as const };
-        await returnNoteService.saveReturnNote(updatedNote);
-        
+        await returnNoteService.updateReturnNote(updatedNote.id, updatedNote);
+
         await loadData();
-        
+
         if (selectedNote?.id === note.id) {
           setSelectedNote(updatedNote);
         }
-        
+
       } catch (error) {
         console.error('Erreur lors du traitement:', error);
         alert('Erreur lors du traitement du bon de retour: ' + (error as Error).message);
@@ -388,7 +373,6 @@ const ReturnNotes: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header Actions */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center space-y-4 sm:space-y-0">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Bons de retour</h1>
@@ -406,7 +390,6 @@ const ReturnNotes: React.FC = () => {
         </div>
       </div>
 
-      {/* Quick Actions for Orders */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Créer un retour à partir d'une commande</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -434,7 +417,6 @@ const ReturnNotes: React.FC = () => {
         </div>
       </div>
 
-      {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-4">
         <div className="relative flex-1">
           <Search className="w-5 h-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
@@ -459,7 +441,6 @@ const ReturnNotes: React.FC = () => {
         </select>
       </div>
 
-      {/* Stats Summary */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="bg-white border border-gray-200 rounded-lg p-4">
           <div className="flex items-center justify-between">
@@ -505,7 +486,6 @@ const ReturnNotes: React.FC = () => {
         </div>
       </div>
 
-      {/* Return Notes Table */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
@@ -606,7 +586,7 @@ const ReturnNotes: React.FC = () => {
             <RotateCcw className="w-12 h-12 text-gray-400 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">Aucun bon de retour trouvé</h3>
             <p className="text-gray-500 mb-4">
-              {returnNotes.length === 0 
+              {returnNotes.length === 0
                 ? "Créez votre premier bon de retour"
                 : "Aucun bon de retour ne correspond à vos critères de recherche"
               }
@@ -624,7 +604,6 @@ const ReturnNotes: React.FC = () => {
         )}
       </div>
 
-      {/* Return Note Details Modal */}
       {selectedNote && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
@@ -637,9 +616,8 @@ const ReturnNotes: React.FC = () => {
                 ×
               </button>
             </div>
-            
+
             <div className="p-6 space-y-6">
-              {/* Note Info */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <h4 className="font-semibold text-gray-900 mb-3">Informations du retour</h4>
@@ -669,7 +647,6 @@ const ReturnNotes: React.FC = () => {
                 </div>
               </div>
 
-              {/* Items */}
               <div>
                 <h4 className="font-semibold text-gray-900 mb-3">Articles retournés</h4>
                 <div className="overflow-x-auto">
@@ -724,14 +701,14 @@ const ReturnNotes: React.FC = () => {
               <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200">
                 {selectedNote.status === 'pending' && (
                   <>
-                    <button 
+                    <button
                       onClick={() => handleApproveNote(selectedNote)}
                       disabled={processingNote === selectedNote.id}
                       className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition-colors"
                     >
                       {processingNote === selectedNote.id ? 'Traitement...' : 'Approuver'}
                     </button>
-                    <button 
+                    <button
                       onClick={() => handleRejectNote(selectedNote)}
                       disabled={processingNote === selectedNote.id}
                       className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
@@ -741,7 +718,7 @@ const ReturnNotes: React.FC = () => {
                   </>
                 )}
                 {selectedNote.status === 'approved' && (
-                  <button 
+                  <button
                     onClick={() => handleProcessNote(selectedNote)}
                     disabled={processingNote === selectedNote.id}
                     className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"

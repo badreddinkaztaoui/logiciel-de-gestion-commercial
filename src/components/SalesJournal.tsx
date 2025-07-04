@@ -10,7 +10,6 @@ import {
   TrendingUp,
   AlertCircle,
   CheckCircle,
-  Percent,
   Receipt,
   Shield
 } from 'lucide-react';
@@ -69,11 +68,9 @@ const SalesJournalComponent: React.FC = () => {
     }
 
     try {
-      // Convert YYYY-MM-DD to DD/MM/YYYY
       const [year, month, day] = selectedDate.split('-');
       const formattedDate = `${day}/${month}/${year}`;
 
-      // Check if journal already exists for this date
       const exists = await salesJournalService.journalExistsForDate(selectedDate);
       if (exists) {
         toast.error(`Un journal existe déjà pour le ${formatDate(selectedDate)}. Impossible d'en créer un nouveau.`);
@@ -127,12 +124,10 @@ const SalesJournalComponent: React.FC = () => {
       const exportData = await salesJournalService.exportJournalForAccounting(journal.id);
       if (!exportData) return;
 
-      // Create CSV content
       const csvContent = exportData.csvData.map(row =>
         row.map(field => `"${field}"`).join(',')
       ).join('\n');
 
-      // Download CSV file
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
@@ -157,7 +152,6 @@ const SalesJournalComponent: React.FC = () => {
     }
   };
 
-  // Calculate total exempt products across all journals
   const getExemptProductsTotal = () => {
     let totalExemptTTC = 0;
     let totalExemptLines = 0;
@@ -233,7 +227,6 @@ const SalesJournalComponent: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center space-y-4 sm:space-y-0">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Journal de vente</h1>
@@ -258,7 +251,6 @@ const SalesJournalComponent: React.FC = () => {
         </div>
       </div>
 
-      {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
           <div className="flex items-center">
@@ -284,7 +276,6 @@ const SalesJournalComponent: React.FC = () => {
           </div>
         </div>
 
-        {/* NEW: Tax-Exempt Products Total Card */}
         <div className="bg-white rounded-lg shadow-sm border border-red-200 p-6">
           <div className="flex items-center">
             <div className="flex-shrink-0">
@@ -323,7 +314,6 @@ const SalesJournalComponent: React.FC = () => {
         </div>
       </div>
 
-      {/* Search */}
       <div className="flex">
         <div className="relative flex-1">
           <Search className="w-5 h-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
@@ -337,7 +327,6 @@ const SalesJournalComponent: React.FC = () => {
         </div>
       </div>
 
-      {/* Journals List */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
@@ -488,7 +477,6 @@ const SalesJournalComponent: React.FC = () => {
         )}
       </div>
 
-      {/* Info Box */}
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
         <div className="flex items-start space-x-3">
           <AlertCircle className="w-5 h-5 text-blue-500 mt-0.5" />

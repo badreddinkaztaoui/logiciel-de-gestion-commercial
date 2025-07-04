@@ -7,9 +7,6 @@ class PurchaseOrderService {
   private readonly ORDERS_TABLE = 'purchase_orders';
   private readonly RECEIVES_TABLE = 'purchase_order_receives';
 
-  /**
-   * Ensure user is authenticated
-   */
   private async ensureAuthenticated(): Promise<string> {
     const { data: { user }, error } = await supabase.auth.getUser();
     if (error || !user) {
@@ -18,9 +15,6 @@ class PurchaseOrderService {
     return user.id;
   }
 
-  /**
-   * Convert database row to PurchaseOrder type
-   */
   private mapDatabaseToPurchaseOrder(row: any): PurchaseOrder {
     return {
       id: row.id,
@@ -37,9 +31,6 @@ class PurchaseOrderService {
     };
   }
 
-  /**
-   * Convert PurchaseOrder type to database row
-   */
   private mapPurchaseOrderToDatabase(order: PurchaseOrder): any {
     return {
       id: order.id,
@@ -56,9 +47,6 @@ class PurchaseOrderService {
     };
   }
 
-  /**
-   * Convert database row to ReceiveItems type
-   */
   private mapDatabaseToReceiveItems(row: any): ReceiveItems {
     return {
       purchaseOrderId: row.purchase_order_id,
@@ -68,9 +56,6 @@ class PurchaseOrderService {
     };
   }
 
-  /**
-   * Convert ReceiveItems type to database row
-   */
   private mapReceiveItemsToDatabase(receive: ReceiveItems): any {
     return {
       purchase_order_id: receive.purchaseOrderId,
@@ -127,26 +112,17 @@ class PurchaseOrderService {
 
   async savePurchaseOrder(order: PurchaseOrder): Promise<PurchaseOrder> {
     try {
-      const userId = await this.ensureAuthenticated();
-
       const orderData = this.mapPurchaseOrderToDatabase(order);
-      
-      // Generate UUID if this is a new purchase order
+
       if (!order.id) {
         orderData.id = crypto.randomUUID();
       }
-      
-      // Confirm the document number if it's being saved
+
       if (order.number) {
         try {
-          await documentNumberingService.confirmDocumentNumber(
-            'purchaseOrder', 
-            order.number, 
-            orderData.id
-          );
+          await documentNumberingService.validateNumber(order.number);
         } catch (numError) {
-          console.error('Error confirming document number:', numError);
-          // Continue with save operation even if confirmation fails
+          console.error('Error validating document number:', numError);
         }
       }
 
@@ -172,10 +148,6 @@ class PurchaseOrderService {
     try {
       await this.ensureAuthenticated();
 
-      // Get the order first to get the document number
-      const order = await this.getPurchaseOrderById(orderId);
-
-      // Delete the order
       const { error } = await supabase
         .from(this.ORDERS_TABLE)
         .delete()
@@ -238,7 +210,6 @@ class PurchaseOrderService {
     try {
       await this.ensureAuthenticated();
 
-      // 1. Save the receive history
       const receiveDataForDb = this.mapReceiveItemsToDatabase(receiveData);
       receiveDataForDb.id = crypto.randomUUID();
 
@@ -251,10 +222,8 @@ class PurchaseOrderService {
         throw receiveError;
       }
 
-      // 2. Update the purchase order
       const order = await this.getPurchaseOrderById(receiveData.purchaseOrderId);
       if (order) {
-        // Update received quantities
         const updatedItems = order.items.map(item => {
           const receivedItem = receiveData.items.find(ri => ri.id === item.id);
           if (receivedItem) {
@@ -265,24 +234,22 @@ class PurchaseOrderService {
           }
           return item;
         });
-        
-        // Determine new status
+
         const allReceived = updatedItems.every(item => (item.received || 0) >= item.quantity);
         const anyReceived = updatedItems.some(item => (item.received || 0) > 0);
-        
+
         const updatedOrder: PurchaseOrder = {
           ...order,
           items: updatedItems,
           status: allReceived ? 'complete' : (anyReceived ? 'partial' : order.status)
         };
-        
+
         await this.savePurchaseOrder(updatedOrder);
-        
-        // 3. Update WooCommerce stock for each received item
+
         for (const item of receiveData.items) {
           if (item.receivedQuantity > 0 && item.productId) {
             try {
-              await wooCommerceService.increaseProductStock(item.productId, item.receivedQuantity);
+              await wooCommerceService.increaseProductStock(parseInt(item.productId), item.receivedQuantity);
               console.log(`Stock updated for product ${item.productId}: +${item.receivedQuantity}`);
             } catch (error) {
               console.error(`Error updating stock for product ${item.productId}:`, error);
@@ -299,10 +266,9 @@ class PurchaseOrderService {
 
   async getNextPurchaseOrderNumber(): Promise<string> {
     try {
-      return await documentNumberingService.reserveDocumentNumber('purchaseOrder');
+      return await documentNumberingService.generatePreviewNumber('PURCHASE_ORDER');
     } catch (error) {
       console.error('Error getting next purchase order number:', error);
-      // Fallback to timestamp-based generation
       const timestamp = Date.now().toString().slice(-6);
       return `BC-${timestamp}`;
     }

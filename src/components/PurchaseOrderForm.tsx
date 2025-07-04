@@ -1,20 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Plus, 
-  Trash2, 
-  Save, 
-  ArrowLeft, 
+import {
+  Plus,
+  Trash2,
+  Save,
+  ArrowLeft,
   Search,
-  Building,
   Percent,
   Package,
-  AlertTriangle,
   AlertCircle
 } from 'lucide-react';
-import { PurchaseOrder, Supplier } from '../types';
+import { PurchaseOrder, Supplier, ProductWithQuantity } from '../types';
 import { purchaseOrderService } from '../services/purchaseOrderService';
 import { supplierService } from '../services/supplierService';
-import { wooCommerceService, WooCommerceProduct } from '../services/woocommerce';
 import { formatCurrency } from '../utils/formatters';
 import ProductSearch from './ProductSearch';
 import { documentNumberingService } from '../services/documentNumberingService';
@@ -51,51 +48,43 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
   const [isLoading, setIsLoading] = useState(true);
   const [numberReserved, setNumberReserved] = useState(false);
 
-  // Helper function to round to 2 decimal places
   const round2 = (num: number): number => {
     return Math.round((num + Number.EPSILON) * 100) / 100;
   };
 
   useEffect(() => {
-    // Clean up any abandoned document number on component unmount
     return () => {
       if (formData.number && !editingOrder) {
         console.log(`Cleaning up reserved number on unmount: ${formData.number}`);
-        documentNumberingService.releaseDocumentNumber('purchaseOrder', formData.number)
+        documentNumberingService.deleteNumber(formData.number)
           .catch(error => console.error('Error releasing document number:', error));
       }
     };
   }, [formData.number, editingOrder]);
 
   useEffect(() => {
-    // Load suppliers and initialize form
     const initialize = async () => {
       try {
         setIsLoading(true);
-        
-        // Load suppliers
+
         const savedSuppliers = await supplierService.getSuppliers();
         setSuppliers(savedSuppliers);
 
         if (editingOrder) {
-          // Editing existing order - use the existing number
           console.log('Editing existing order:', editingOrder.number);
           setFormData(editingOrder);
           setNumberReserved(true);
         } else {
-          // New purchase order - need to reserve a number
           console.log('Initializing new purchase order form...');
-          
-          // Get expected delivery date (7 days from now)
+
           const expectedDelivery = new Date();
           expectedDelivery.setDate(expectedDelivery.getDate() + 7);
           const expectedDeliveryStr = expectedDelivery.toISOString().split('T')[0];
-          
-          // Reserve a document number
+
           try {
             const orderNumber = await purchaseOrderService.getNextPurchaseOrderNumber();
             console.log('Reserved document number:', orderNumber);
-            
+
             setFormData({
               id: crypto.randomUUID(),
               number: orderNumber,
@@ -105,12 +94,12 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
               supplierId: savedSuppliers.length > 0 ? savedSuppliers[0].id : '',
               items: [{
                 id: crypto.randomUUID(),
-                productId: 0,
+                productId: '0',
                 description: '',
                 quantity: 1,
                 received: 0,
-                unitPrice: 0, // Prix TTC
-                total: 0, // Total TTC
+                unitPrice: 0,
+                total: 0,
                 taxRate: 20,
                 taxAmount: 0
               }],
@@ -137,26 +126,22 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
     initialize();
   }, [editingOrder]);
 
-  // Calculate totals when items change
   useEffect(() => {
     calculateTotals();
   }, [formData.items]);
 
-  // Updated calculation for TTC pricing
   const calculateTotals = () => {
     if (!formData.items || formData.items.length === 0) return;
-    
+
     console.log('Calculating purchase order totals from TTC prices:', formData.items);
-    
-    // Calculate subtotal HT from TTC prices
+
     const subtotal = round2(formData.items?.reduce((sum, item) => {
       const itemTTC = item.total || 0;
       const taxRate = (item.taxRate || 20) / 100;
       const itemHT = round2(itemTTC / (1 + taxRate));
       return sum + itemHT;
     }, 0) || 0);
-    
-    // Tax is calculated from HT amounts
+
     const tax = round2(formData.items?.reduce((sum, item) => {
       const itemTTC = item.total || 0;
       const taxRate = (item.taxRate || 20) / 100;
@@ -164,8 +149,7 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
       const itemTax = round2(itemHT * taxRate);
       return sum + itemTax;
     }, 0) || 0);
-    
-    // Total TTC is sum of all item totals TTC
+
     const total = round2(formData.items?.reduce((sum, item) => sum + (item.total || 0), 0) || 0);
 
     console.log('Calculated purchase order totals (TTC system):', { subtotal, tax, total });
@@ -180,7 +164,7 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
 
   const handleItemChange = (index: number, field: string, value: any) => {
     console.log(`Changing purchase order item ${index}, field ${field}, value:`, value);
-    
+
     const newItems = [...(formData.items || [])];
     newItems[index] = {
       ...newItems[index],
@@ -188,20 +172,17 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
     };
 
     if (field === 'quantity' || field === 'unitPrice') {
-      // Calculate total TTC from unit price TTC
       const newTotalTTC = round2(newItems[index].quantity * newItems[index].unitPrice);
       newItems[index].total = newTotalTTC;
-      
-      // Calculate tax amount from TTC total
+
       const taxRate = (newItems[index].taxRate || 20) / 100;
       const totalHT = round2(newTotalTTC / (1 + taxRate));
       newItems[index].taxAmount = round2(totalHT * taxRate);
-      
+
       console.log(`Purchase order item total TTC: ${newTotalTTC}, HT: ${totalHT}, tax: ${newItems[index].taxAmount}`);
     }
 
     if (field === 'taxRate') {
-      // Recalculate tax amount when tax rate changes (keep TTC price the same)
       const totalTTC = newItems[index].total;
       const taxRate = parseFloat(value) / 100;
       const totalHT = round2(totalTTC / (1 + taxRate));
@@ -217,19 +198,19 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
 
   const addItem = () => {
     console.log('Adding new purchase order item');
-    
+
     setFormData(prev => ({
       ...prev,
       items: [
         ...(prev.items || []),
         {
           id: crypto.randomUUID(),
-          productId: 0,
+          productId: '0',
           description: '',
           quantity: 1,
           received: 0,
-          unitPrice: 0, // Prix TTC
-          total: 0, // Total TTC
+          unitPrice: 0,
+          total: 0,
           taxRate: 20,
           taxAmount: 0
         }
@@ -239,36 +220,34 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
 
   const removeItem = (index: number) => {
     console.log('Removing purchase order item at index:', index);
-    
+
     setFormData(prev => ({
       ...prev,
       items: prev.items?.filter((_, i) => i !== index) || []
     }));
   };
 
-  const handleProductSelect = async (product: WooCommerceProduct, quantity: number, taxRate: number) => {
-    console.log(`Adding product "${product.name}" to purchase order with tax rate ${taxRate}% (TTC pricing)`);
-    
-    // WooCommerce prices are TTC, so we use them directly
-    const priceTTC = round2(parseFloat(product.price)); // WooCommerce price is TTC
-    const totalTTC = round2(priceTTC * quantity);
-    
-    // Calculate HT from TTC for tax amount calculation
-    const totalHT = round2(totalTTC / (1 + taxRate / 100));
-    const taxAmount = round2(totalHT * (taxRate / 100));
-    
-    console.log(`Purchase order product price: TTC=${priceTTC} (keeping TTC price, tax rate: ${taxRate}%)`);
-    
+  const handleProductSelect = async (productWithQuantity: ProductWithQuantity) => {
+    console.log(`Adding product "${productWithQuantity.name}" to purchase order with tax rate ${productWithQuantity.taxRate}% (TTC pricing)`);
+
+    const priceTTC = round2(parseFloat(productWithQuantity.price));
+    const totalTTC = round2(priceTTC * productWithQuantity.quantity);
+
+    const totalHT = round2(totalTTC / (1 + productWithQuantity.taxRate / 100));
+    const taxAmount = round2(totalHT * (productWithQuantity.taxRate / 100));
+
+    console.log(`Purchase order product price: TTC=${priceTTC} (keeping TTC price, tax rate: ${productWithQuantity.taxRate}%)`);
+
     const newItem = {
       id: crypto.randomUUID(),
-      productId: product.id,
-      sku: product.sku,
-      description: product.name,
-      quantity: quantity,
+      productId: productWithQuantity.id.toString(),
+      sku: productWithQuantity.sku,
+      description: productWithQuantity.name,
+      quantity: productWithQuantity.quantity,
       received: 0,
-      unitPrice: priceTTC, // Store TTC price (like WooCommerce)
-      total: totalTTC, // Store TTC total
-      taxRate: taxRate,
+      unitPrice: priceTTC,
+      total: totalTTC,
+      taxRate: productWithQuantity.taxRate,
       taxAmount: taxAmount
     };
 
@@ -313,7 +292,7 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!validateForm()) {
       return;
     }
@@ -344,33 +323,27 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
       setIsSubmitting(false);
     }
   };
-  
+
   const handleCancel = () => {
     // Release the document number if this is a new order
     if (!editingOrder && formData.number) {
-      documentNumberingService.releaseDocumentNumber('purchaseOrder', formData.number)
+      documentNumberingService.deleteNumber(formData.number)
         .catch(error => console.error('Error releasing document number on cancel:', error));
     }
-    
+
     onCancel();
   };
 
-  const getSupplierName = (supplierId: string) => {
-    const supplier = suppliers.find(s => s.id === supplierId);
-    return supplier ? supplier.name : 'Sélectionner un fournisseur';
-  };
-
-  // Enhanced tax breakdown for display
   const getTaxBreakdown = () => {
     const taxBreakdown = new Map<number, number>();
-    
+
     formData.items?.forEach(item => {
       const taxRate = item.taxRate || 20;
       const totalTTC = item.total || 0;
       const taxRate100 = taxRate / 100;
       const totalHT = round2(totalTTC / (1 + taxRate100));
       const taxAmount = round2(totalHT * taxRate100);
-      
+
       if (taxBreakdown.has(taxRate)) {
         taxBreakdown.set(taxRate, round2(taxBreakdown.get(taxRate)! + taxAmount));
       } else {
@@ -379,7 +352,7 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
     });
 
     return Array.from(taxBreakdown.entries())
-      .filter(([rate, amount]) => amount > 0)
+      .filter(([_, amount]) => amount > 0)
       .sort(([rateA], [rateB]) => rateA - rateB);
   };
 
@@ -396,7 +369,6 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
 
   return (
     <div className="max-w-6xl mx-auto">
-      {/* Header */}
       <div className="mb-8">
         <div className="flex items-center justify-between">
           <div>
@@ -440,7 +412,6 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
         </div>
       </div>
 
-      {/* General error message */}
       {errors.general && (
         <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4 flex items-start space-x-3">
           <AlertCircle className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" />
@@ -454,7 +425,7 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
         {/* Order Header */}
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
           <h2 className="text-lg font-semibold text-gray-900 mb-6">Informations générales</h2>
-          
+
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -596,7 +567,7 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
                   const taxRate100 = (item.taxRate || 20) / 100;
                   const totalHT = round2(totalTTC / (1 + taxRate100));
                   const itemTaxAmount = round2(totalHT * taxRate100);
-                  
+
                   return (
                     <tr key={item.id}>
                       <td className="px-6 py-4">
@@ -610,7 +581,7 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
                         {item.sku && (
                           <p className="text-xs text-gray-500 mt-1">SKU: {item.sku}</p>
                         )}
-                        {item.productId && item.productId > 0 && (
+                        {item.productId && parseInt(item.productId) > 0 && (
                           <p className="text-xs text-blue-600 mt-1 flex items-center">
                             <Package className="w-3 h-3 mr-1" />
                             WooCommerce ID: {item.productId}
@@ -695,7 +666,7 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
                 <span className="text-gray-600">Sous-total HT:</span>
                 <span className="font-medium">{formatCurrency(formData.subtotal || 0)}</span>
               </div>
-              
+
               {/* Enhanced Tax Breakdown */}
               {getTaxBreakdown().map(([rate, amount]) => (
                 <div key={rate} className="flex justify-between text-sm">
@@ -706,12 +677,12 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
                   <span className="font-medium text-blue-600">{formatCurrency(amount)}</span>
                 </div>
               ))}
-              
+
               <div className="flex justify-between text-sm border-t pt-2">
                 <span className="text-gray-600">Total TVA:</span>
                 <span className="font-medium text-blue-600">{formatCurrency(formData.tax || 0)}</span>
               </div>
-              
+
               <div className="flex justify-between text-lg font-bold border-t pt-4">
                 <span>Total TTC:</span>
                 <span className="text-blue-600">{formatCurrency(formData.total || 0)}</span>
@@ -736,7 +707,7 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
       {/* Product Search Modal */}
       {showProductSearch && (
         <ProductSearch
-          onProductSelect={handleProductSelect}
+          onSelect={handleProductSelect}
           onClose={() => setShowProductSearch(false)}
         />
       )}

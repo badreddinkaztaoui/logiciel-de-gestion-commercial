@@ -76,54 +76,46 @@ export interface WooCommerceOrder {
 
 export interface Customer {
   id: string;
-  wooCommerceId?: number; // ID du client dans WooCommerce
-  firstName: string;
-  lastName: string;
+  name: string;
   company?: string;
   email: string;
   phone?: string;
   address?: string;
   city?: string;
-  postalCode?: string;
-  country?: string;
-  ice?: string; // Champ spécifique non présent dans WooCommerce
+  postal_code?: string;
+  country: string;
+  ice?: string;
   notes?: string;
-  createdAt: string;
-  updatedAt: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Quote {
   id: string;
   number: string;
-  orderId?: number;
-  date: string;
-  validUntil: string;
-  status: 'draft' | 'sent' | 'accepted' | 'rejected' | 'expired';
   customer: {
     name: string;
     email: string;
     company?: string;
     address: string;
     city: string;
-    postalCode: string;
-    country: string;
   };
+  date: string;
+  validUntil: string;
+  status: 'draft' | 'sent' | 'accepted' | 'rejected' | 'expired';
   items: {
-    id: string;
     description: string;
     quantity: number;
-    unitPrice: number; // Prix unitaire TTC (comme WooCommerce)
-    total: number; // Total TTC pour cette ligne
-    productId?: number; // WooCommerce product ID
-    sku?: string; // Product SKU
-    taxRate?: number; // Tax rate for this item (0, 7, 10, 20%)
-    taxAmount?: number; // Tax amount for this item
+    unitPrice: number;
+    total: number;
   }[];
-  subtotal: number; // Sous-total HT
-  tax: number; // Total des taxes
-  total: number; // Total TTC
+  subtotal: number;
+  tax: number;
+  total: number;
+  conditions?: string;
   notes?: string;
-  conditions?: string; // Conditions particulières du devis
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Invoice {
@@ -165,80 +157,68 @@ export interface Invoice {
 export interface DeliveryNote {
   id: string;
   number: string;
-  orderId?: number;
-  invoiceId?: string;
+  invoice_id?: string;
+  customer_id?: string;
+  customer_data?: any;
   date: string;
-  estimatedDeliveryDate?: string;
-  status: 'pending' | 'in_transit' | 'delivered' | 'cancelled';
-  customer: {
-    name: string;
-    company?: string;
-    address: string;
-    city: string;
-    postalCode: string;
-    country: string;
-  };
-  items: {
-    id: string;
-    description: string;
-    quantity: number;
-    delivered?: number;
-    productId?: number; // WooCommerce product ID
-  }[];
+  estimated_delivery_date?: string;
+  actual_delivery_date?: string;
+  status: 'draft' | 'in_transit' | 'delivered' | 'cancelled';
+  items: any[];
   notes?: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface ReturnNote {
   id: string;
   number: string;
-  orderId?: number;
+  invoice_id?: string;
+  delivery_note_id?: string;
+  customer_id?: string;
+  customer_data?: any;
   date: string;
-  reason: string;
-  status: 'pending' | 'approved' | 'rejected' | 'processed';
-  customer: {
-    name: string;
-    email: string;
-    company?: string;
-  };
-  items: {
-    id: string;
-    description: string;
-    quantity: number;
-    reason: string;
-    condition: 'new' | 'used' | 'damaged';
-    productId?: number; // WooCommerce product ID for stock management
-    refundAmount?: number;
-  }[];
-  refundAmount?: number;
+  status: 'draft' | 'processed' | 'cancelled';
+  items: any[];
+  reason?: string;
   notes?: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Supplier {
   id: string;
   name: string;
-  contactName: string;
-  email: string;
-  phone: string;
-  address: string;
-  city: string;
-  postalCode: string;
+  company?: string;
+  email?: string;
+  phone?: string;
+  address?: string;
+  city?: string;
+  postal_code?: string;
   country: string;
-  taxNumber?: string;
+  ice?: string;
   notes?: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface PurchaseOrder {
   id: string;
   number: string;
+  supplier_id?: string;
+  supplier_data?: any;
   date: string;
-  expectedDeliveryDate: string;
-  status: 'draft' | 'ordered' | 'partial' | 'complete' | 'cancelled';
-  supplierId: string;
-  items: PurchaseOrderItem[];
-  subtotal: number; // Sous-total HT
-  tax: number; // Total des taxes
-  total: number; // Total TTC
+  expected_delivery_date?: string;
+  status: 'draft' | 'sent' | 'confirmed' | 'received' | 'cancelled';
+  items: any[];
+  subtotal: number;
+  tax_rate: number;
+  tax_amount: number;
+  total: number;
+  currency: string;
   notes?: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface PurchaseOrderItem {
