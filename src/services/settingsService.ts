@@ -444,11 +444,11 @@ class SettingsService {
       if (documentType === 'SALES_JOURNAL') {
         const currentYear = new Date().getFullYear();
         const paddedNumber = nextNumber.toString().padStart(4, '0');
-        formattedNumber = `F G${currentYear}${paddedNumber}`;
+        formattedNumber = `F A${currentYear}${paddedNumber}`;
       } else if (documentType === 'INVOICE') {
         const currentYear = new Date().getFullYear();
         const paddedNumber = nextNumber.toString().padStart(4, '0');
-        formattedNumber = `F G${currentYear}${paddedNumber}`;
+        formattedNumber = `F A${currentYear}${paddedNumber}`;
       } else {
         // Format the number according to settings for other document types
         if (docSettings.suffix) {
@@ -476,7 +476,7 @@ class SettingsService {
       // Special format for sales journal and invoice even in fallback
       if (documentType === 'SALES_JOURNAL' || documentType === 'INVOICE') {
         const currentYear = new Date().getFullYear();
-        return `F G${currentYear}${timestamp}`;
+        return `F A${currentYear}${timestamp}`;
       }
 
       switch (documentType) {

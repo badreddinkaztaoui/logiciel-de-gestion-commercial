@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import toast from 'react-hot-toast';
 import {
   Plus,
   Eye,
@@ -63,32 +64,50 @@ const SalesJournalComponent: React.FC = () => {
 
   const handleCreateJournal = async () => {
     if (!selectedDate) {
-      alert('Veuillez sélectionner une date');
+      toast.error('Veuillez sélectionner une date');
       return;
     }
 
     try {
+      // Convert YYYY-MM-DD to DD/MM/YYYY
+      const [year, month, day] = selectedDate.split('-');
+      const formattedDate = `${day}/${month}/${year}`;
+
       // Check if journal already exists for this date
       const exists = await salesJournalService.journalExistsForDate(selectedDate);
       if (exists) {
-        alert(`Un journal existe déjà pour le ${formatDate(selectedDate)}. Impossible d'en créer un nouveau.`);
+        toast.error(`Un journal existe déjà pour le ${formatDate(selectedDate)}. Impossible d'en créer un nouveau.`);
         return;
       }
 
-      const newJournal = await salesJournalService.generateSalesJournal(selectedDate);
+      const { journal, ordersFound } = await salesJournalService.generateSalesJournal(formattedDate);
 
-      if (newJournal.lines.length === 0) {
-        alert(`Aucune commande trouvée pour le ${formatDate(selectedDate)}`);
+      if (!ordersFound) {
+        toast(() => (
+          <div className="flex items-center">
+            <AlertCircle className="w-5 h-5 text-orange-500 mr-2" />
+            <span>Aucune commande trouvée pour le {formatDate(selectedDate)}</span>
+          </div>
+        ), {
+          style: {
+            borderRadius: '10px',
+            background: '#fff8ed',
+            color: '#9a3412',
+            border: '1px solid #fed7aa',
+          },
+        });
         return;
       }
 
-      const savedJournal = await salesJournalService.saveSalesJournal(newJournal);
+      const savedJournal = await salesJournalService.saveSalesJournal(journal!);
       setSelectedJournal(savedJournal);
       setShowForm(true);
       await loadJournals();
+
+      toast.success('Journal de vente créé avec succès');
     } catch (error) {
       console.error('Error creating sales journal:', error);
-      alert('Erreur lors de la création du journal de vente');
+      toast.error('Erreur lors de la création du journal de vente');
     }
   };
 

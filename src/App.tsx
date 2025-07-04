@@ -19,6 +19,7 @@ import SalesJournal from './components/SalesJournal';
 import { wooCommerceService } from './services/woocommerce';
 import { invoiceService } from './services/invoiceService';
 import { WooCommerceOrder, Invoice } from './types';
+import { Toaster } from 'react-hot-toast';
 
 const App: React.FC = () => {
   const { user, loading, initialize } = useAuthStore();
@@ -46,6 +47,7 @@ const App: React.FC = () => {
 
   return (
     <Router>
+      <Toaster position="top-right" />
       <Routes>
         {!user ? (
           <>

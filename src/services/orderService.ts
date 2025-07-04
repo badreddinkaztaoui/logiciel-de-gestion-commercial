@@ -387,6 +387,44 @@ class OrderService {
       throw error;
     }
   }
+
+  async getOrdersForDate(date: string): Promise<WooCommerceOrder[]> {
+    try {
+      await this.ensureAuthenticated();
+
+      // Create start and end of day timestamps for the given date
+      const startDate = new Date(date);
+      startDate.setUTCHours(0, 0, 0, 0);
+
+      const endDate = new Date(date);
+      endDate.setUTCHours(23, 59, 59, 999);
+
+      console.log('Fetching orders between:', {
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString()
+      });
+
+      const { data, error } = await supabase
+        .from(this.TABLE_NAME)
+        .select('*')
+        .gte('date_created', startDate.toISOString())
+        .lt('date_created', endDate.toISOString())
+        .order('date_created', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching orders for date:', error);
+        throw error;
+      }
+
+      const orders = (data as WooCommerceOrder[]) || [];
+      console.log(`Found ${orders.length} orders for date ${date}`);
+
+      return orders;
+    } catch (error) {
+      console.error('Failed to fetch orders for date:', error);
+      throw error;
+    }
+  }
 }
 
 export const orderService = new OrderService();

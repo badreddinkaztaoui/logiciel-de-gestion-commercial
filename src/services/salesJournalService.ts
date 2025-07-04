@@ -30,10 +30,14 @@ class SalesJournalService {
   }
 
   private async mapSalesJournalToDatabase(journal: SalesJournal): Promise<any> {
+    // Convert DD/MM/YYYY to YYYY-MM-DD for database storage
+    const [day, month, year] = journal.date.split('/');
+    const isoDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+
     return {
       id: journal.id,
       number: journal.number,
-      date: journal.date,
+      date: isoDate,
       status: journal.status,
       orders_included: journal.ordersIncluded,
       lines: journal.lines,
@@ -163,18 +167,32 @@ class SalesJournalService {
     }
   }
 
-  async generateSalesJournal(date: string): Promise<SalesJournal> {
+  async generateSalesJournal(date: string): Promise<{ journal: SalesJournal | null; ordersFound: boolean }> {
     console.log(`Generating sales journal for date: ${date}`);
 
     try {
-      const { data: allOrders } = await orderService.getOrders();
+      // Parse the input date and convert it to YYYY-MM-DD format
+      const [day, month, year] = date.split('/');
+      if (!day || !month || !year) {
+        console.error('Invalid date format:', date);
+        throw new Error(`Invalid date format. Expected DD/MM/YYYY but got: ${date}`);
+      }
 
-      const ordersForDate = allOrders.filter((order: WooCommerceOrder) => {
-        const orderDate = new Date(order.date_created).toISOString().split('T')[0];
-        return orderDate === date;
+      const formattedDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+
+      console.log('Debug info:', {
+        inputDate: date,
+        formattedDate
       });
 
+      // Get orders specifically for this date
+      const ordersForDate = await orderService.getOrdersForDate(formattedDate);
+
       console.log(`Found ${ordersForDate.length} orders for date ${date}`);
+
+      if (ordersForDate.length === 0) {
+        return { journal: null, ordersFound: false };
+      }
 
       const journalLines: SalesJournalLine[] = [];
       const orderIds: number[] = [];
@@ -281,7 +299,7 @@ class SalesJournalService {
         taxBreakdown: taxBreakdown.length
       });
 
-      return salesJournal;
+      return { journal: salesJournal, ordersFound: true };
     } catch (error) {
       console.error('Error generating sales journal:', error);
       throw error;

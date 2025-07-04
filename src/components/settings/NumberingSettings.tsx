@@ -15,8 +15,10 @@ const NumberingSettings: React.FC<NumberingSettingsProps> = ({ settings, onUpdat
 
   const formatDocumentNumber = (type: keyof INumberingSettings, prefix: string, suffix: string, number: number) => {
     // Special format for sales journal and invoice
-    if (type === 'SALES_JOURNAL' || type === 'INVOICE') {
+    if (type === 'SALES_JOURNAL') {
       return `F G${selectedYear}${number.toString().padStart(4, '0')}`;
+    } else if (type === 'INVOICE') {
+      return `F A${selectedYear}${number.toString().padStart(4, '0')}`;
     } else if (suffix) {
       return `${prefix}-${suffix}${number}`;
     } else {
@@ -46,6 +48,30 @@ const NumberingSettings: React.FC<NumberingSettingsProps> = ({ settings, onUpdat
       const docSettings = { ...settings[type], [field]: value };
       const formattedNumber = formatDocumentNumber(type, docSettings.prefix, docSettings.suffix, docSettings.currentNumber);
       setPreviewNumbers(prev => ({ ...prev, [type]: formattedNumber }));
+    }
+  };
+
+  const handleReset = async (type: keyof INumberingSettings) => {
+    if (window.confirm(`Réinitialiser la numérotation pour ${type === 'SALES_JOURNAL' ? 'le journal de vente' : type} ? Cette action est irréversible.`)) {
+      try {
+        // Only reset if it's a document type that uses the document_numbers table
+        if (type === 'SALES_JOURNAL' || type === 'INVOICE') {
+          // Reset the entire table structure for a fresh start
+          await documentNumberingService.resetTableStructure();
+        }
+
+        // Reset the settings to start number
+        const startNumber = settings[type].startNumber || 1;
+        onUpdate({
+          [type]: { ...settings[type], currentNumber: startNumber }
+        });
+
+        // Reload preview
+        await loadNextNumber(type);
+      } catch (error) {
+        console.error('Error resetting numbering:', error);
+        alert('Erreur lors de la réinitialisation de la numérotation');
+      }
     }
   };
 
@@ -92,7 +118,7 @@ const NumberingSettings: React.FC<NumberingSettingsProps> = ({ settings, onUpdat
     documentTypes.forEach(({ key }) => {
       loadNextNumber(key);
     });
-  }, [settings]); // Also reload when settings change
+  }, [settings]);
 
   // Generate year options (current year +/- 5 years)
   const currentYear = new Date().getFullYear();
@@ -119,20 +145,30 @@ const NumberingSettings: React.FC<NumberingSettingsProps> = ({ settings, onUpdat
 
         return (
           <div key={docType.key} className="bg-white border border-gray-200 rounded-lg p-6">
-            <div className="flex items-center space-x-3 mb-6">
-              <span className="text-2xl">{docType.icon}</span>
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">{docType.label}</h3>
-                <p className="text-sm text-gray-600">
-                  Prochain numéro: {loading[docType.key] ? (
-                    <span className="font-mono text-gray-400">Chargement...</span>
-                  ) : (
-                    <span className="font-mono font-bold text-blue-600">
-                      {previewNumber}
-                    </span>
-                  )}
-                </p>
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center space-x-3">
+                <span className="text-2xl">{docType.icon}</span>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">{docType.label}</h3>
+                  <p className="text-sm text-gray-600">
+                    Prochain numéro: {loading[docType.key] ? (
+                      <span className="font-mono text-gray-400">Chargement...</span>
+                    ) : (
+                      <span className="font-mono font-bold text-blue-600">
+                        {previewNumber}
+                      </span>
+                    )}
+                  </p>
+                </div>
               </div>
+              <button
+                onClick={() => handleReset(docType.key)}
+                className="flex items-center space-x-2 px-4 py-2 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 transition-colors"
+                title="Réinitialiser la numérotation"
+              >
+                <RotateCw className="w-4 h-4" />
+                <span>Réinitialiser</span>
+              </button>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
