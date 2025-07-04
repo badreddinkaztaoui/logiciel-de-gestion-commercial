@@ -127,12 +127,9 @@ const InvoiceForm: React.FC = () => {
     const dueDate = new Date();
     dueDate.setDate(dueDate.getDate() + 30);
 
-    // Generate invoice number
-    const invoiceNumber = await generateDocumentNumber('FAC');
-
     const blankFormData = {
       id: crypto.randomUUID(),
-      number: invoiceNumber,
+      number: '', // Don't generate number until save
       date: new Date().toISOString().split('T')[0],
       dueDate: dueDate.toISOString().split('T')[0],
       status: 'draft' as const,
@@ -160,7 +157,7 @@ const InvoiceForm: React.FC = () => {
       notes: ''
     };
 
-    console.log('✅ Blank invoice initialized with number:', invoiceNumber);
+    console.log('✅ Blank invoice initialized');
     setFormData(blankFormData);
   };
 
@@ -213,9 +210,6 @@ const InvoiceForm: React.FC = () => {
       // Due date calculation
       const dueDate = new Date();
       dueDate.setDate(dueDate.getDate() + 30);
-
-      // Generate invoice number
-      const invoiceNumber = await generateDocumentNumber('FAC');
 
       // CRITICAL: Process line items with FRESH WooCommerce product prices
       setProductLoadingStatus('Récupération des prix actuels des produits...');
@@ -309,7 +303,7 @@ const InvoiceForm: React.FC = () => {
       // Prepare final form data
       const invoiceData = {
         id: crypto.randomUUID(),
-        number: invoiceNumber,
+        number: '', // Don't generate number until save
         orderId: order.id,
         date: new Date().toISOString().split('T')[0],
         dueDate: dueDate.toISOString().split('T')[0],
@@ -323,7 +317,6 @@ const InvoiceForm: React.FC = () => {
       };
 
       console.log('✅ Final invoice data ready:', {
-        invoiceNumber: invoiceData.number,
         itemsCount: invoiceData.items.length,
         totalTTC: formatCurrency(invoiceData.total)
       });
@@ -362,9 +355,6 @@ const InvoiceForm: React.FC = () => {
       country: billing.country || 'MA'
     };
 
-    // Generate invoice number
-    const invoiceNumber = await generateDocumentNumber('FAC');
-
     const items = (order.line_items || []).map(item => {
       const quantity = parseInt(item.quantity?.toString() || '1');
       const unitPriceTTC = parseFloat((item.price || '0').toString());
@@ -384,7 +374,7 @@ const InvoiceForm: React.FC = () => {
 
     const invoiceData = {
       id: crypto.randomUUID(),
-      number: invoiceNumber,
+      number: '', // Don't generate number until save
       orderId: order.id,
       date: new Date().toISOString().split('T')[0],
       dueDate: dueDate.toISOString().split('T')[0],
@@ -767,10 +757,9 @@ const InvoiceForm: React.FC = () => {
               </label>
               <input
                 type="text"
-                value={formData.number}
-                onChange={(e) => setFormData(prev => ({ ...prev, number: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                required
+                value={formData.number || 'Sera généré lors de la sauvegarde'}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-500 cursor-not-allowed"
+                disabled
               />
             </div>
             <div>
