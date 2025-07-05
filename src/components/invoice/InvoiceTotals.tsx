@@ -28,7 +28,7 @@ const InvoiceTotals: React.FC<InvoiceTotalsProps> = ({
     const taxBreakdown = new Map<number, number>();
 
     items.forEach(item => {
-      const taxRate = item.taxRate || 20;
+      const taxRate = item.taxRate || 0;
       const totalTTC = item.total || 0;
       const taxRate100 = taxRate / 100;
       const totalHT = round2(totalTTC / (1 + taxRate100));

@@ -134,7 +134,9 @@ export interface Invoice {
     description: string;
     quantity: number;
     unitPrice: number;
+    unitPriceHT: number;
     total: number;
+    totalHT: number;
     taxRate: number;
     taxAmount: number;
     productId?: number;

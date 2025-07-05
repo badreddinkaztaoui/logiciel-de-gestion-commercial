@@ -43,7 +43,7 @@ const InvoiceForm: React.FC = () => {
     items: [],
     subtotal: 0,
     tax: 0,
-    taxRate: 20,
+    taxRate: 0,
     total: 0,
     currency: 'MAD',
     notes: ''
@@ -133,7 +133,7 @@ const InvoiceForm: React.FC = () => {
       items: [],
       subtotal: 0,
       tax: 0,
-      taxRate: 20,
+      taxRate: 0,
       total: 0,
       currency: 'MAD',
       notes: ''
@@ -190,7 +190,7 @@ const InvoiceForm: React.FC = () => {
 
   const processOrderItem = async (item: any) => {
     let currentPriceTTC = 0;
-    let taxRate = 20;
+    let taxRate = 0;
 
     try {
       if (item.product_id) {
@@ -212,33 +212,88 @@ const InvoiceForm: React.FC = () => {
 
     const quantity = parseInt(item.quantity?.toString() || '1');
     const totalTTC = round2(currentPriceTTC * quantity);
-    const taxRate100 = taxRate / 100;
-    const totalHT = round2(totalTTC / (1 + taxRate100));
-    const taxAmount = round2(totalHT * taxRate100);
 
-    return {
-      id: crypto.randomUUID(),
-      productId: item.product_id,
-      description: item.name || '',
-      quantity,
-      unitPrice: currentPriceTTC,
-      total: totalTTC,
-      taxRate,
-      taxAmount
-    };
+    // For 0% TVA, HT = TTC
+    if (taxRate === 0) {
+      return {
+        id: crypto.randomUUID(),
+        productId: item.product_id,
+        description: item.name || '',
+        quantity,
+        unitPrice: currentPriceTTC,
+        unitPriceHT: currentPriceTTC, // Same as TTC for 0% TVA
+        total: totalTTC,
+        totalHT: totalTTC, // Same as TTC for 0% TVA
+        taxRate: 0,
+        taxAmount: 0
+      };
+    } else {
+      // Calculate HT for products with TVA
+      const taxRate100 = taxRate / 100;
+      const unitPriceHT = round2(currentPriceTTC / (1 + taxRate100));
+      const totalHT = round2(unitPriceHT * quantity);
+      const taxAmount = round2(totalHT * taxRate100);
+
+      return {
+        id: crypto.randomUUID(),
+        productId: item.product_id,
+        description: item.name || '',
+        quantity,
+        unitPrice: currentPriceTTC,
+        unitPriceHT: unitPriceHT,
+        total: totalTTC,
+        totalHT: totalHT,
+        taxRate,
+        taxAmount
+      };
+    }
   };
 
   const calculateTotalsFromItems = (items: any[]) => {
-    const subtotal = round2(items.reduce((sum, item) => {
-      const taxRate100 = (item.taxRate || 20) / 100;
-      const itemHT = round2(item.total / (1 + taxRate100));
-      return sum + itemHT;
-    }, 0));
+    // Group items by tax rate
+    const itemsByTaxRate: { [key: number]: any[] } = {};
+    items.forEach(item => {
+      const rate = item.taxRate || 0;
+      if (!itemsByTaxRate[rate]) {
+        itemsByTaxRate[rate] = [];
+      }
+      itemsByTaxRate[rate].push(item);
+    });
 
-    const tax = round2(items.reduce((sum, item) => sum + (item.taxAmount || 0), 0));
-    const total = round2(items.reduce((sum, item) => sum + item.total, 0));
+    let subtotal = 0;
+    let totalTax = 0;
 
-    return { subtotal, tax, total };
+    // Calculate subtotal and tax for each tax rate group
+    Object.entries(itemsByTaxRate).forEach(([taxRate, groupItems]) => {
+      const rate = parseFloat(taxRate);
+      const groupSubtotal = groupItems.reduce((sum, item) => {
+        if (rate > 0) {
+          // For items with tax, calculate HT price
+          const taxRate100 = rate / 100;
+          const itemHT = round2(item.total / (1 + taxRate100));
+          return sum + itemHT;
+        } else {
+          // For items without tax, use total as is
+          return sum + item.total;
+        }
+      }, 0);
+
+      subtotal += groupSubtotal;
+      if (rate > 0) {
+        totalTax += round2(groupSubtotal * (rate / 100));
+      }
+    });
+
+    subtotal = round2(subtotal);
+    totalTax = round2(totalTax);
+    const total = round2(subtotal + totalTax);
+
+    return {
+      subtotal,
+      tax: totalTax,
+      total,
+      // We don't set a global taxRate anymore as it's per item
+    };
   };
 
   const extractCustomerFromOrder = (order: WooCommerceOrder) => {
@@ -366,15 +421,31 @@ const InvoiceForm: React.FC = () => {
     if (field === 'quantity' || field === 'unitPrice') {
       const item = newItems[index];
       const totalTTC = round2(item.quantity * item.unitPrice);
-      const taxRate100 = item.taxRate / 100;
-      const totalHT = round2(totalTTC / (1 + taxRate100));
-      const taxAmount = round2(totalHT * taxRate100);
 
-      newItems[index] = {
-        ...item,
-        total: totalTTC,
-        taxAmount: taxAmount
-      };
+      if (item.taxRate === 0) {
+        // For 0% TVA, HT = TTC
+        newItems[index] = {
+          ...item,
+          total: totalTTC,
+          unitPriceHT: item.unitPrice,
+          totalHT: totalTTC,
+          taxAmount: 0
+        };
+      } else {
+        // Calculate HT for products with TVA
+        const taxRate100 = item.taxRate / 100;
+        const unitPriceHT = round2(item.unitPrice / (1 + taxRate100));
+        const totalHT = round2(unitPriceHT * item.quantity);
+        const taxAmount = round2(totalHT * taxRate100);
+
+        newItems[index] = {
+          ...item,
+          total: totalTTC,
+          unitPriceHT: unitPriceHT,
+          totalHT: totalHT,
+          taxAmount: taxAmount
+        };
+      }
     }
 
     setFormData(prev => {
@@ -397,8 +468,10 @@ const InvoiceForm: React.FC = () => {
           description: '',
           quantity: 1,
           unitPrice: 0,
+          unitPriceHT: 0,
           total: 0,
-          taxRate: 20,
+          totalHT: 0,
+          taxRate: 0,
           taxAmount: 0
         }
       ]
@@ -421,18 +494,29 @@ const InvoiceForm: React.FC = () => {
   const handleProductSelect = (product: ProductWithQuantity) => {
     const priceTTC = round2(parseFloat(product.price));
     const totalTTC = round2(priceTTC * product.quantity);
-    const totalHT = round2(totalTTC / (1 + product.taxRate / 100));
-    const taxAmount = round2(totalHT * (product.taxRate / 100));
+
+    let unitPriceHT = priceTTC;
+    let totalHT = totalTTC;
+    let taxAmount = 0;
+
+    if (product.taxRate > 0) {
+      const taxRate100 = product.taxRate / 100;
+      unitPriceHT = round2(priceTTC / (1 + taxRate100));
+      totalHT = round2(unitPriceHT * product.quantity);
+      taxAmount = round2(totalHT * taxRate100);
+    }
 
     const newItem = {
       id: crypto.randomUUID(),
       description: product.name,
       quantity: product.quantity,
       unitPrice: priceTTC,
+      unitPriceHT: unitPriceHT,
       total: totalTTC,
+      totalHT: totalHT,
       productId: product.id,
       sku: product.sku,
-      taxRate: product.taxRate,
+      taxRate: product.taxRate || 0,
       taxAmount: taxAmount
     };
 

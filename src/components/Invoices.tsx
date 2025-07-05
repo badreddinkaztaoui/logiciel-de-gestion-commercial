@@ -387,7 +387,7 @@ const Invoices: React.FC = () => {
                     <p><strong>Email:</strong> {selectedInvoice.customer.email}</p>
                     <p><strong>Adresse:</strong> {selectedInvoice.customer.address}</p>
                     <p><strong>Ville:</strong> {selectedInvoice.customer.city}</p>
-                    <p><strong>Code postal:</strong> {selectedInvoice.customer.postalCode}</p>
+                    <p><strong>Code postal:</strong> {selectedInvoice.customer.postal_code}</p>
                   </div>
                 </div>
 
@@ -419,10 +419,19 @@ const Invoices: React.FC = () => {
                           Quantité
                         </th>
                         <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">
-                          Prix unitaire
+                          Prix unitaire HT
                         </th>
                         <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">
-                          Total
+                          Prix unitaire TTC
+                        </th>
+                        <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">
+                          Total HT
+                        </th>
+                        <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">
+                          TVA
+                        </th>
+                        <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">
+                          Total TTC
                         </th>
                       </tr>
                     </thead>
@@ -436,7 +445,16 @@ const Invoices: React.FC = () => {
                             {item.quantity}
                           </td>
                           <td className="px-4 py-2 text-sm text-gray-900 text-right">
+                            {formatCurrency(item.unitPriceHT)}
+                          </td>
+                          <td className="px-4 py-2 text-sm text-gray-900 text-right">
                             {formatCurrency(item.unitPrice)}
+                          </td>
+                          <td className="px-4 py-2 text-sm text-gray-900 text-right">
+                            {formatCurrency(item.totalHT)}
+                          </td>
+                          <td className="px-4 py-2 text-sm text-gray-900 text-right">
+                            {formatCurrency(item.taxAmount)}
                           </td>
                           <td className="px-4 py-2 text-sm text-gray-900 text-right">
                             {formatCurrency(item.total)}

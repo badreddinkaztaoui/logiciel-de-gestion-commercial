@@ -175,7 +175,7 @@ const InvoiceItems: React.FC<InvoiceItemsProps> = ({
                 <td className="px-6 py-4 text-right w-40">
                   <div className="text-blue-600 font-bold">{formatCurrency(item.total)}</div>
                   <div className="text-xs text-gray-500">
-                    HT: {formatCurrency(round2(item.total / (1 + (item.taxRate || 20) / 100)))}
+                    HT: {formatCurrency(round2(item.total / (1 + (item.taxRate || 0) / 100)))}
                   </div>
                 </td>
                 <td className="px-6 py-4 text-right w-32">
