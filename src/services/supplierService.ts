@@ -31,24 +31,16 @@ class SupplierService {
   }
 
   async getSuppliers(): Promise<Supplier[]> {
-    try {
-      await this.ensureAuthenticated();
+    const { data, error } = await supabase
+      .from(this.TABLE_NAME)
+      .select('*')
+      .order('name', { ascending: true });
 
-      const { data, error } = await supabase
-        .from(this.TABLE_NAME)
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        console.error('Error fetching suppliers:', error);
-        throw error;
-      }
-
-      return (data || []).map(this.mapDatabaseToSupplier);
-    } catch (error) {
-      console.error('Error loading suppliers:', error);
-      return [];
+    if (error) {
+      throw error;
     }
+
+    return data || [];
   }
 
   async getSupplier(id: string): Promise<Supplier | null> {
@@ -127,20 +119,12 @@ class SupplierService {
   }
 
   async deleteSupplier(id: string): Promise<void> {
-    try {
-      await this.ensureAuthenticated();
+    const { error } = await supabase
+      .from(this.TABLE_NAME)
+      .delete()
+      .eq('id', id);
 
-      const { error } = await supabase
-        .from(this.TABLE_NAME)
-        .delete()
-        .eq('id', id);
-
-      if (error) {
-        console.error('Error deleting supplier:', error);
-        throw error;
-      }
-    } catch (error) {
-      console.error('Error deleting supplier:', error);
+    if (error) {
       throw error;
     }
   }
@@ -182,6 +166,50 @@ class SupplierService {
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     };
+  }
+
+  async saveSupplier(supplier: Supplier): Promise<void> {
+    if (supplier.id) {
+      const { error } = await supabase
+        .from(this.TABLE_NAME)
+        .update({
+          name: supplier.name,
+          company: supplier.company,
+          email: supplier.email,
+          phone: supplier.phone,
+          address: supplier.address,
+          city: supplier.city,
+          postal_code: supplier.postal_code,
+          country: supplier.country,
+          ice: supplier.ice,
+          notes: supplier.notes,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', supplier.id);
+
+      if (error) {
+        throw error;
+      }
+    } else {
+      const { error } = await supabase
+        .from(this.TABLE_NAME)
+        .insert({
+          name: supplier.name,
+          company: supplier.company,
+          email: supplier.email,
+          phone: supplier.phone,
+          address: supplier.address,
+          city: supplier.city,
+          postal_code: supplier.postal_code,
+          country: supplier.country,
+          ice: supplier.ice,
+          notes: supplier.notes
+        });
+
+      if (error) {
+        throw error;
+      }
+    }
   }
 }
 

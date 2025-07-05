@@ -15,8 +15,19 @@ import {
 } from 'lucide-react';
 import { toast, Toaster } from 'react-hot-toast';
 import { invoiceService } from '../services/invoiceService';
-import { Invoice } from '../types';
+import { Invoice } from '../types/index';
 import { formatCurrency, formatDate } from '../utils/formatters';
+
+interface InvoiceStats {
+  total: number;
+  draft: number;
+  sent: number;
+  paid: number;
+  overdue: number;
+  totalValue: number;
+  paidValue: number;
+  pendingValue: number;
+}
 
 const Invoices: React.FC = () => {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -24,7 +35,7 @@ const Invoices: React.FC = () => {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
   const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState({
+  const [stats, setStats] = useState<InvoiceStats>({
     total: 0,
     draft: 0,
     sent: 0,
@@ -66,30 +77,6 @@ const Invoices: React.FC = () => {
     navigate(`/invoices/edit/${invoice.id}`);
   };
 
-  const checkOverdueInvoices = () => {
-    const today = new Date();
-
-    const updatedInvoices = invoices.map(invoice => {
-      if (invoice.status === 'sent' && new Date(invoice.dueDate) < today) {
-        return { ...invoice, status: 'overdue' as const };
-      }
-      return invoice;
-    });
-
-    setInvoices(updatedInvoices);
-
-    // Save any updated invoices
-    updatedInvoices.forEach(async invoice => {
-      if (invoice.status === 'overdue' && invoices.find(i => i.id === invoice.id)?.status === 'sent') {
-        try {
-          await invoiceService.saveInvoice(invoice);
-        } catch (error) {
-          console.error('Error updating invoice status:', error);
-        }
-      }
-    });
-  };
-
   const handleDeleteInvoice = async (id: string) => {
     if (confirm('Êtes-vous sûr de vouloir supprimer cette facture ?')) {
       try {
@@ -99,7 +86,6 @@ const Invoices: React.FC = () => {
       } catch (error: any) {
         console.error('Error deleting invoice:', error);
 
-        // If the error is about WooCommerce link, offer to cancel instead
         if (error.message && error.message.includes('WooCommerce')) {
           if (confirm(error.message + '\n\nVoulez-vous annuler cette facture à la place ?')) {
             try {
@@ -115,21 +101,6 @@ const Invoices: React.FC = () => {
           toast.error('Erreur lors de la suppression de la facture');
         }
       }
-    }
-  };
-
-  const handleStatusChange = async (id: string, newStatus: 'draft' | 'sent' | 'paid' | 'overdue') => {
-    try {
-      const invoice = invoices.find(inv => inv.id === id);
-      if (invoice) {
-        const updatedInvoice = { ...invoice, status: newStatus };
-        await invoiceService.saveInvoice(updatedInvoice);
-        setInvoices(invoices.map(inv => inv.id === id ? updatedInvoice : inv));
-        toast.success('Statut de la facture mis à jour');
-      }
-    } catch (error) {
-      toast.error('Erreur lors de la mise à jour du statut');
-      console.error('Error updating invoice status:', error);
     }
   };
 
@@ -157,8 +128,8 @@ const Invoices: React.FC = () => {
 
   const filteredInvoices = invoices.filter(invoice => {
     const matchesSearch = invoice.number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         invoice.customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         invoice.customer.company?.toLowerCase().includes(searchTerm.toLowerCase());
+                        invoice.customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                        invoice.customer.company?.toLowerCase().includes(searchTerm.toLowerCase());
 
     const matchesStatus = statusFilter === 'all' || invoice.status === statusFilter;
 
@@ -167,195 +138,223 @@ const Invoices: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
+      <div className="h-full flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
       </div>
     );
   }
 
   return (
-    <div className="space-y-8">
+    <div className="h-full flex flex-col">
       <Toaster position="top-right" />
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center space-y-4 sm:space-y-0">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Factures</h1>
-          <p className="text-gray-600 mt-2">Gérez vos factures et suivez vos paiements</p>
+      {/* Fixed Header Section */}
+      <div className="flex-none space-y-2">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center space-y-4 sm:space-y-0 bg-white px-6 py-4 border-b">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Factures</h1>
+            <p className="text-sm text-gray-600">Gérez vos factures et suivez vos paiements</p>
+          </div>
+
+          <button
+            onClick={handleCreateInvoice}
+            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Nouvelle facture</span>
+          </button>
         </div>
 
-        <button
-          onClick={handleCreateInvoice}
-          className="flex items-center space-x-2 px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
-        >
-          <Plus className="w-5 h-5" />
-          <span>Nouvelle facture</span>
-        </button>
+        {/* Stats Cards */}
+        <div className="px-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-gray-600">Total</p>
+                  <p className="text-lg font-bold text-gray-900">{stats.total}</p>
+                </div>
+                <div className="p-2 bg-blue-100 rounded-full">
+                  <FileText className="w-4 h-4 text-blue-600" />
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-gray-600">Payées</p>
+                  <p className="text-lg font-bold text-green-600">{stats.paid}</p>
+                </div>
+                <div className="p-2 bg-green-100 rounded-full">
+                  <CheckCircle className="w-4 h-4 text-green-600" />
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-gray-600">En retard</p>
+                  <p className="text-lg font-bold text-red-600">{stats.overdue}</p>
+                </div>
+                <div className="p-2 bg-red-100 rounded-full">
+                  <AlertTriangle className="w-4 h-4 text-red-600" />
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-gray-600">Valeur totale</p>
+                  <p className="text-lg font-bold text-gray-900">{formatCurrency(stats.totalValue)}</p>
+                </div>
+                <div className="p-2 bg-purple-100 rounded-full">
+                  <Users className="w-4 h-4 text-purple-600" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Filters */}
+        <div className="px-6">
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                <input
+                  type="text"
+                  placeholder="Rechercher par numéro, client..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="all">Tous les statuts</option>
+                <option value="draft">Brouillon</option>
+                <option value="sent">Envoyée</option>
+                <option value="paid">Payée</option>
+                <option value="overdue">En retard</option>
+                <option value="cancelled">Annulée</option>
+              </select>
+            </div>
+          </div>
+        </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Total</p>
-              <p className="text-2xl font-bold text-gray-900">{stats.total}</p>
-            </div>
-            <div className="p-3 bg-blue-100 rounded-full">
-              <FileText className="w-6 h-6 text-blue-600" />
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Payées</p>
-              <p className="text-2xl font-bold text-green-600">{stats.paid}</p>
-            </div>
-            <div className="p-3 bg-green-100 rounded-full">
-              <CheckCircle className="w-6 h-6 text-green-600" />
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">En retard</p>
-              <p className="text-2xl font-bold text-red-600">{stats.overdue}</p>
-            </div>
-            <div className="p-3 bg-red-100 rounded-full">
-              <AlertTriangle className="w-6 h-6 text-red-600" />
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-gray-600">Valeur totale</p>
-              <p className="text-2xl font-bold text-gray-900">{formatCurrency(stats.totalValue)}</p>
-            </div>
-            <div className="p-3 bg-purple-100 rounded-full">
-              <Users className="w-6 h-6 text-purple-600" />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Filters */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <div className="flex flex-col sm:flex-row gap-4">
-          <div className="flex-1">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-              <input
-                type="text"
-                placeholder="Rechercher par numéro, client..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
-          </div>
-
-          <div className="sm:w-48">
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            >
-              <option value="all">Tous les statuts</option>
-              <option value="draft">Brouillon</option>
-              <option value="sent">Envoyée</option>
-              <option value="paid">Payée</option>
-              <option value="overdue">En retard</option>
-            </select>
-          </div>
-        </div>
-      </div>
-
-      {/* Invoices List */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Numéro
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Client
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Date
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Échéance
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Montant
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Statut
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {filteredInvoices.map((invoice) => (
-                <tr key={invoice.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-gray-900">{invoice.number}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">{invoice.customer.name}</div>
-                    {invoice.customer.company && (
-                      <div className="text-sm text-gray-500">{invoice.customer.company}</div>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {formatDate(invoice.date)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {formatDate(invoice.dueDate)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {formatCurrency(invoice.total)}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(invoice.status)}`}>
-                      {getStatusLabel(invoice.status)}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <div className="flex justify-end space-x-2">
-                      <button
-                        onClick={() => setSelectedInvoice(invoice)}
-                        className="text-blue-600 hover:text-blue-900"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleEditInvoice(invoice)}
-                        className="text-yellow-600 hover:text-yellow-900"
-                      >
-                        <Edit className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteInvoice(invoice.id)}
-                        className="text-red-600 hover:text-red-900"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </td>
+      {/* Scrollable Table Section */}
+      <div className="flex-1 px-6 overflow-hidden mt-4">
+        <div className="h-full bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden flex flex-col">
+          {/* Fixed Table Header */}
+          <div className="flex-none">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th scope="col" className="sticky top-0 px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-32 bg-gray-50">
+                    Numéro
+                  </th>
+                  <th scope="col" className="sticky top-0 px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-64 bg-gray-50">
+                    Client
+                  </th>
+                  <th scope="col" className="sticky top-0 px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-40 bg-gray-50">
+                    Date
+                  </th>
+                  <th scope="col" className="sticky top-0 px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-32 bg-gray-50">
+                    Statut
+                  </th>
+                  <th scope="col" className="sticky top-0 px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-40 bg-gray-50">
+                    Total
+                  </th>
+                  <th scope="col" className="sticky top-0 px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-32 bg-gray-50">
+                    Actions
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+            </table>
+          </div>
+
+          {/* Scrollable Table Body */}
+          <div className="flex-1 overflow-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <tbody className="bg-white divide-y divide-gray-200">
+                {filteredInvoices.map((invoice) => (
+                  <tr key={invoice.id} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-6 py-4 whitespace-nowrap w-32">
+                      <div className="text-sm font-medium text-gray-900 text-center">
+                        #{invoice.number}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap w-64">
+                      <div className="flex flex-col items-center text-center">
+                        <div className="text-sm text-gray-900">
+                          {invoice.customer.name}
+                        </div>
+                        {invoice.customer.company && (
+                          <div className="text-sm text-gray-500 truncate max-w-xs">
+                            {invoice.customer.company}
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 w-40 text-center">
+                      {formatDate(invoice.date)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap w-32">
+                      <div className="flex justify-center">
+                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(invoice.status)}`}>
+                          {getStatusLabel(invoice.status)}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 w-40 text-center">
+                      {formatCurrency(invoice.total)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap w-32">
+                      <div className="flex justify-center space-x-2">
+                        <button
+                          onClick={() => handleEditInvoice(invoice)}
+                          className="text-blue-600 hover:text-blue-900"
+                          title="Modifier"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => setSelectedInvoice(invoice)}
+                          className="text-green-600 hover:text-green-900"
+                          title="Voir détails"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteInvoice(invoice.id)}
+                          className="text-red-600 hover:text-red-900"
+                          title="Supprimer"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+
+                {filteredInvoices.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-4 text-center text-gray-500">
+                      Aucune facture trouvée
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 

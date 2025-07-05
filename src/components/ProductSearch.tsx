@@ -11,7 +11,7 @@ import { wooCommerceService, WooCommerceProduct } from '../services/woocommerce'
 import { formatCurrency } from '../utils/formatters';
 
 // Define interface for product with quantity
-interface ProductWithQuantity extends WooCommerceProduct {
+export interface ProductWithQuantity extends WooCommerceProduct {
   quantity: number;
   taxRate: number;
 }

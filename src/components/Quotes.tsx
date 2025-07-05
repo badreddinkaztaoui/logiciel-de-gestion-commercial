@@ -7,8 +7,6 @@ import {
   Search,
   FileText,
   Clock,
-  Calendar,
-  Users,
   CheckCircle,
   AlertTriangle,
   X,
@@ -20,6 +18,7 @@ import { invoiceService } from '../services/invoiceService';
 import { Quote } from '../types';
 import { formatCurrency, formatDate } from '../utils/formatters';
 import QuoteForm from './QuoteForm';
+import { toast, Toaster } from 'react-hot-toast';
 
 const Quotes: React.FC = () => {
   const [quotes, setQuotes] = useState<Quote[]>([]);
@@ -29,10 +28,18 @@ const Quotes: React.FC = () => {
   const [selectedQuote, setSelectedQuote] = useState<Quote | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState({
+    total: 0,
+    draft: 0,
+    sent: 0,
+    accepted: 0,
+    rejected: 0,
+    expired: 0,
+    totalValue: 0
+  });
 
   useEffect(() => {
     loadQuotes();
-    // Check expired quotes on component mount
     checkExpiredQuotes();
   }, []);
 
@@ -41,14 +48,25 @@ const Quotes: React.FC = () => {
       setLoading(true);
       const loadedQuotes = await quoteService.getQuotes();
       setQuotes(loadedQuotes);
+
+      const stats = {
+        total: loadedQuotes.length,
+        draft: loadedQuotes.filter(q => q.status === 'draft').length,
+        sent: loadedQuotes.filter(q => q.status === 'sent').length,
+        accepted: loadedQuotes.filter(q => q.status === 'accepted').length,
+        rejected: loadedQuotes.filter(q => q.status === 'rejected').length,
+        expired: loadedQuotes.filter(q => q.status === 'expired').length,
+        totalValue: loadedQuotes.reduce((sum, q) => sum + q.total, 0)
+      };
+      setStats(stats);
     } catch (error) {
+      toast.error('Erreur lors du chargement des devis');
       console.error('Error loading quotes:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  // Check expired quotes and update their status
   const checkExpiredQuotes = async () => {
     try {
       const expiredQuotes = await quoteService.checkExpiredQuotes();
@@ -102,7 +120,6 @@ const Quotes: React.FC = () => {
     try {
       await quoteService.acceptQuote(quoteId);
       await loadQuotes();
-      // Close modal if open
       if (selectedQuote && selectedQuote.id === quoteId) {
         setSelectedQuote(null);
       }
@@ -118,7 +135,6 @@ const Quotes: React.FC = () => {
       try {
         await quoteService.rejectQuote(quoteId, reason);
         await loadQuotes();
-        // Close modal if open
         if (selectedQuote && selectedQuote.id === quoteId) {
           setSelectedQuote(null);
         }
@@ -137,15 +153,12 @@ const Quotes: React.FC = () => {
         }
       }
 
-      // Create invoice data from quote
       const invoiceData = quoteService.convertToInvoice(quote.id);
 
-      // Save new invoice
       await invoiceService.saveInvoice(invoiceData);
 
       alert(`Le devis a été converti en facture avec succès !`);
 
-      // Redirect to invoices page
       window.location.href = '#invoices';
     } catch (error) {
       console.error('Error converting quote to invoice:', error);
@@ -165,11 +178,10 @@ const Quotes: React.FC = () => {
     document.body.removeChild(link);
   };
 
-  // Filter quotes
   const filteredQuotes = quotes.filter(quote => {
     const matchesSearch = quote.number.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         quote.customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         quote.customer.email.toLowerCase().includes(searchTerm.toLowerCase());
+                        quote.customer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                        quote.customer.email.toLowerCase().includes(searchTerm.toLowerCase());
 
     const matchesStatus = statusFilter === 'all' || quote.status === statusFilter;
 
@@ -252,178 +264,203 @@ const Quotes: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center">
-          <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto mb-4" />
-          <p className="text-gray-600">Chargement des devis...</p>
-        </div>
+      <div className="h-full flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center space-y-4 sm:space-y-0">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Devis</h1>
-          <p className="text-gray-600">Gérez vos devis et convertissez-les en factures</p>
-        </div>
+    <div className="h-full flex flex-col">
+      <Toaster position="top-right" />
+      <div className="flex-none space-y-2">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center space-y-4 sm:space-y-0 bg-white px-6 py-4 border-b">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Devis</h1>
+            <p className="text-sm text-gray-600">Gérez vos devis et suivez leur statut</p>
+          </div>
 
-        <button
-          onClick={handleCreateQuote}
-          className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Nouveau devis</span>
-        </button>
-      </div>
-
-      {/* Stats Cards */}
-      <StatsCards />
-
-      {/* Filters */}
-      <div className="flex flex-col md:flex-row space-y-4 md:space-y-0 md:space-x-4">
-        <div className="relative md:flex-grow">
-          <Search className="w-5 h-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-          <input
-            type="text"
-            placeholder="Rechercher devis..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10 pr-4 py-2 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-          />
-        </div>
-
-        <div className="md:w-64">
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 appearance-none bg-white"
+          <button
+            onClick={handleCreateQuote}
+            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
           >
-            <option value="all">Tous les statuts</option>
-            <option value="draft">Brouillons</option>
-            <option value="sent">Envoyés</option>
-            <option value="accepted">Acceptés</option>
-            <option value="rejected">Rejetés</option>
-            <option value="expired">Expirés</option>
-          </select>
+            <Plus className="w-4 h-4" />
+            <span>Nouveau devis</span>
+          </button>
+        </div>
+
+        <div className="px-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-gray-600">Total</p>
+                  <p className="text-lg font-bold text-gray-900">{stats.total}</p>
+                </div>
+                <div className="p-2 bg-blue-100 rounded-full">
+                  <FileText className="w-4 h-4 text-blue-600" />
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-gray-600">Acceptés</p>
+                  <p className="text-lg font-bold text-green-600">{stats.accepted}</p>
+                </div>
+                <div className="p-2 bg-green-100 rounded-full">
+                  <CheckCircle className="w-4 h-4 text-green-600" />
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-gray-600">En attente</p>
+                  <p className="text-lg font-bold text-blue-600">{stats.sent}</p>
+                </div>
+                <div className="p-2 bg-blue-100 rounded-full">
+                  <Clock className="w-4 h-4 text-blue-600" />
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-gray-600">Valeur totale</p>
+                  <p className="text-lg font-bold text-gray-900">{formatCurrency(stats.totalValue)}</p>
+                </div>
+                <div className="p-2 bg-purple-100 rounded-full">
+                  <TrendingUp className="w-4 h-4 text-purple-600" />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="px-6">
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                <input
+                  type="text"
+                  placeholder="Rechercher par numéro, client..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              >
+                <option value="all">Tous les statuts</option>
+                <option value="draft">Brouillon</option>
+                <option value="sent">Envoyé</option>
+                <option value="accepted">Accepté</option>
+                <option value="rejected">Rejeté</option>
+                <option value="expired">Expiré</option>
+              </select>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Quotes List */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Devis
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Client
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Date
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Validité
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Statut
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Total
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {filteredQuotes.map((quote) => {
-                const isExpired = isQuoteExpired(quote.validUntil) && quote.status !== 'accepted' && quote.status !== 'rejected';
+      <div className="flex-1 px-6 overflow-hidden mt-4">
+        <div className="h-full bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden flex flex-col">
+          <div className="flex-none">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th scope="col" className="sticky top-0 px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-32 bg-gray-50">
+                    Numéro
+                  </th>
+                  <th scope="col" className="sticky top-0 px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-64 bg-gray-50">
+                    Client
+                  </th>
+                  <th scope="col" className="sticky top-0 px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-40 bg-gray-50">
+                    Date
+                  </th>
+                  <th scope="col" className="sticky top-0 px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-40 bg-gray-50">
+                    Validité
+                  </th>
+                  <th scope="col" className="sticky top-0 px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-32 bg-gray-50">
+                    Statut
+                  </th>
+                  <th scope="col" className="sticky top-0 px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-40 bg-gray-50">
+                    Total
+                  </th>
+                  <th scope="col" className="sticky top-0 px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-32 bg-gray-50">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+            </table>
+          </div>
 
-                return (
-                  <tr key={quote.id} className={`hover:bg-gray-50 ${isExpired ? 'bg-yellow-50' : ''}`}>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <div className="flex-shrink-0 h-10 w-10 bg-blue-100 rounded-full flex items-center justify-center">
-                          <FileText className="w-6 h-6 text-blue-600" />
+          <div className="flex-1 overflow-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <tbody className="bg-white divide-y divide-gray-200">
+                {filteredQuotes.map((quote) => (
+                  <tr key={quote.id} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-6 py-4 whitespace-nowrap w-32">
+                      <div className="text-sm font-medium text-gray-900 text-center">
+                        #{quote.number}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap w-64">
+                      <div className="flex flex-col items-center text-center">
+                        <div className="text-sm text-gray-900">
+                          {quote.customer.name}
                         </div>
-                        <div className="ml-4">
-                          <div className="text-sm font-medium text-gray-900">{quote.number}</div>
-                          <div className="text-xs text-gray-500">
-                            Créé le {formatDate(quote.date)}
+                        {quote.customer.company && (
+                          <div className="text-sm text-gray-500 truncate max-w-xs">
+                            {quote.customer.company}
                           </div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="text-sm font-medium text-gray-900">{quote.customer.name}</div>
-                      <div className="text-xs text-gray-500">{quote.customer.email}</div>
-                      {quote.customer.company && (
-                        <div className="text-xs text-gray-500">{quote.customer.company}</div>
-                      )}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center text-sm text-gray-900">
-                        <Calendar className="w-4 h-4 mr-2 text-gray-500" />
-                        {formatDate(quote.date)}
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className={`flex items-center text-sm ${isExpired ? 'text-red-600' : 'text-gray-900'}`}>
-                        <Clock className={`w-4 h-4 mr-2 ${isExpired ? 'text-red-500' : 'text-gray-500'}`} />
-                        {formatDate(quote.validUntil)}
-                        {isExpired && (
-                          <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
-                            Expiré
-                          </span>
                         )}
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
-                        {getStatusIcon(quote.status)}
-                        <span className={`ml-2 inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(quote.status)}`}>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 w-40 text-center">
+                      {formatDate(quote.date)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 w-40 text-center">
+                      {formatDate(quote.validUntil)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap w-32">
+                      <div className="flex justify-center">
+                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(quote.status)}`}>
                           {getStatusLabel(quote.status)}
                         </span>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 w-40 text-center">
                       {formatCurrency(quote.total)}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      <div className="flex items-center space-x-2">
+                    <td className="px-6 py-4 whitespace-nowrap w-32">
+                      <div className="flex justify-center space-x-2">
+                        <button
+                          onClick={() => handleEditQuote(quote)}
+                          className="text-blue-600 hover:text-blue-900"
+                          title="Modifier"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </button>
                         <button
                           onClick={() => setSelectedQuote(quote)}
-                          className="text-blue-600 hover:text-blue-900 p-1 hover:bg-blue-50 rounded"
+                          className="text-green-600 hover:text-green-900"
                           title="Voir détails"
                         >
                           <Eye className="w-4 h-4" />
                         </button>
-                        {quote.status === 'draft' && (
-                          <button
-                            onClick={() => handleEditQuote(quote)}
-                            className="text-green-600 hover:text-green-900 p-1 hover:bg-green-50 rounded"
-                            title="Modifier"
-                          >
-                            <Edit className="w-4 h-4" />
-                          </button>
-                        )}
-                        {canBeConverted(quote) && (
-                          <button
-                            onClick={() => handleConvertToInvoice(quote)}
-                            className="text-purple-600 hover:text-purple-900 p-1 hover:bg-purple-50 rounded"
-                            title="Convertir en facture"
-                          >
-                            <TrendingUp className="w-4 h-4" />
-                          </button>
-                        )}
                         <button
                           onClick={() => handleDeleteQuote(quote.id)}
-                          className="text-red-600 hover:text-red-900 p-1 hover:bg-red-50 rounded"
+                          className="text-red-600 hover:text-red-900"
                           title="Supprimer"
                         >
                           <Trash2 className="w-4 h-4" />
@@ -431,179 +468,165 @@ const Quotes: React.FC = () => {
                       </div>
                     </td>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                ))}
 
-        {filteredQuotes.length === 0 && (
-          <div className="text-center py-12">
-            <FileText className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">Aucun devis trouvé</h3>
-            <p className="text-gray-500 mb-4">
-              {quotes.length === 0
-                ? "Créez votre premier devis"
-                : "Aucun devis ne correspond à vos critères de recherche"
-              }
-            </p>
-            {quotes.length === 0 && (
-              <button
-                onClick={handleCreateQuote}
-                className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-              >
-                <Plus className="w-4 h-4 mr-2" />
-                Ajouter maintenant
-              </button>
-            )}
+                {filteredQuotes.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="px-6 py-4 text-center text-gray-500">
+                      Aucun devis trouvé
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
-        )}
+        </div>
       </div>
 
-      {/* Quote Details Modal */}
       {selectedQuote && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-              <h3 className="text-lg font-semibold">Devis {selectedQuote.number}</h3>
-              <div className="flex items-center space-x-3">
-                <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(selectedQuote.status)}`}>
-                  {getStatusIcon(selectedQuote.status)}
-                  <span className="ml-1">{getStatusLabel(selectedQuote.status)}</span>
-                </span>
+            <div className="p-6">
+              <div className="flex justify-between items-start mb-6">
+                <h2 className="text-2xl font-bold text-gray-900">
+                  Devis {selectedQuote.number}
+                </h2>
                 <button
                   onClick={() => setSelectedQuote(null)}
-                  className="text-gray-400 hover:text-gray-600 text-2xl"
+                  className="text-gray-400 hover:text-gray-600"
                 >
-                  ×
+                  <X className="w-6 h-6" />
                 </button>
               </div>
-            </div>
-            <div className="p-6">
+
+              {/* Quote Details */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                 <div>
-                  <h4 className="font-medium text-gray-900 mb-3 flex items-center">
-                    <Users className="w-4 h-4 mr-2" />
-                    Informations client
-                  </h4>
-                  <div className="space-y-2 text-sm">
-                    <p><span className="text-gray-600">Nom:</span> {selectedQuote.customer.name}</p>
-                    <p><span className="text-gray-600">Email:</span> {selectedQuote.customer.email}</p>
+                  <h3 className="text-lg font-semibold text-gray-900 mb-3">Informations client</h3>
+                  <div className="space-y-2">
+                    <p><strong>Nom:</strong> {selectedQuote.customer.name}</p>
                     {selectedQuote.customer.company && (
-                      <p><span className="text-gray-600">Entreprise:</span> {selectedQuote.customer.company}</p>
+                      <p><strong>Société:</strong> {selectedQuote.customer.company}</p>
                     )}
-                    <p><span className="text-gray-600">Adresse:</span> {selectedQuote.customer.address}, {selectedQuote.customer.city}</p>
+                    <p><strong>Email:</strong> {selectedQuote.customer.email}</p>
+                    <p><strong>Adresse:</strong> {selectedQuote.customer.address}</p>
+                    <p><strong>Ville:</strong> {selectedQuote.customer.city}</p>
                   </div>
                 </div>
+
                 <div>
-                  <h4 className="font-medium text-gray-900 mb-3 flex items-center">
-                    <Calendar className="w-4 h-4 mr-2" />
-                    Détails devis
-                  </h4>
-                  <div className="space-y-2 text-sm">
-                    <p><span className="text-gray-600">Date:</span> {formatDate(selectedQuote.date)}</p>
-                    <p><span className="text-gray-600">Valable jusqu'au:</span> {formatDate(selectedQuote.validUntil)}</p>
-                    <p><span className="text-gray-600">Statut:</span> {getStatusLabel(selectedQuote.status)}</p>
-                    {isQuoteExpired(selectedQuote.validUntil) && selectedQuote.status !== 'accepted' && selectedQuote.status !== 'rejected' && (
-                      <p className="text-red-600 flex items-center">
-                        <AlertTriangle className="w-4 h-4 mr-1" />
-                        Ce devis a expiré
-                      </p>
-                    )}
+                  <h3 className="text-lg font-semibold text-gray-900 mb-3">Détails du devis</h3>
+                  <div className="space-y-2">
+                    <p><strong>Date:</strong> {formatDate(selectedQuote.date)}</p>
+                    <p><strong>Validité:</strong> {formatDate(selectedQuote.validUntil)}</p>
+                    <p><strong>Statut:</strong>
+                      <span className={`ml-2 inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(selectedQuote.status)}`}>
+                        {getStatusLabel(selectedQuote.status)}
+                      </span>
+                    </p>
                   </div>
                 </div>
               </div>
 
-              <div>
-                <h4 className="font-medium text-gray-900 mb-3">Articles</h4>
-                <div className="space-y-2">
-                  {selectedQuote.items.map((item, index) => (
-                    <div key={index} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg">
-                      <div>
-                        <p className="font-medium text-gray-900">{item.description}</p>
-                        <p className="text-sm text-gray-600">Quantité: {item.quantity}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-medium">{formatCurrency(item.total)}</p>
-                        <p className="text-xs text-gray-500">({formatCurrency(item.unitPrice)} unité)</p>
-                      </div>
-                    </div>
-                  ))}
+              {/* Items */}
+              <div className="mb-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-3">Articles</h3>
+                <div className="overflow-x-auto">
+                  <table className="w-full border border-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                          Description
+                        </th>
+                        <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">
+                          Quantité
+                        </th>
+                        <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">
+                          Prix unitaire
+                        </th>
+                        <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">
+                          Total
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {selectedQuote.items.map((item, index) => (
+                        <tr key={index}>
+                          <td className="px-4 py-2 text-sm text-gray-900">
+                            {item.description}
+                          </td>
+                          <td className="px-4 py-2 text-sm text-gray-900 text-right">
+                            {item.quantity}
+                          </td>
+                          <td className="px-4 py-2 text-sm text-gray-900 text-right">
+                            {formatCurrency(item.unitPrice)}
+                          </td>
+                          <td className="px-4 py-2 text-sm text-gray-900 text-right">
+                            {formatCurrency(item.total)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-
-                <div className="mt-6 p-4 bg-gray-50 rounded-lg">
-                  <div className="flex justify-between mb-2">
-                    <span className="text-gray-600">Sous-total HT:</span>
-                    <span>{formatCurrency(selectedQuote.subtotal)}</span>
-                  </div>
-                  <div className="flex justify-between mb-2">
-                    <span className="text-gray-600">TVA:</span>
-                    <span>{formatCurrency(selectedQuote.tax)}</span>
-                  </div>
-                  <div className="flex justify-between font-bold text-lg border-t border-gray-200 pt-2 mt-2">
-                    <span>Total TTC:</span>
-                    <span>{formatCurrency(selectedQuote.total)}</span>
-                  </div>
-                </div>
-
-                {selectedQuote.conditions && (
-                  <div className="mt-4 p-3 bg-blue-50 rounded-lg">
-                    <h5 className="font-medium text-blue-900 mb-2">Conditions</h5>
-                    <p className="text-sm text-blue-800">{selectedQuote.conditions}</p>
-                  </div>
-                )}
-
-                {selectedQuote.notes && (
-                  <div className="mt-4">
-                    <h5 className="font-medium text-gray-900 mb-2">Notes</h5>
-                    <p className="text-sm bg-gray-50 p-3 rounded-lg">{selectedQuote.notes}</p>
-                  </div>
-                )}
               </div>
 
-              <div className="mt-8 flex flex-wrap justify-end gap-3">
-                {selectedQuote.status === 'draft' && (
-                  <button
-                    onClick={() => handleEditQuote(selectedQuote)}
-                    className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300"
-                  >
-                    Modifier
-                  </button>
-                )}
+              {/* Totals */}
+              <div className="flex justify-end">
+                <div className="w-64 space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-600">Sous-total HT:</span>
+                    <span className="text-sm font-medium text-gray-900">
+                      {formatCurrency(selectedQuote.subtotal)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-600">TVA:</span>
+                    <span className="text-sm font-medium text-gray-900">
+                      {formatCurrency(selectedQuote.tax)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between border-t pt-2">
+                    <span className="text-base font-semibold text-gray-900">Total TTC:</span>
+                    <span className="text-base font-semibold text-gray-900">
+                      {formatCurrency(selectedQuote.total)}
+                    </span>
+                  </div>
+                </div>
+              </div>
 
-                {canBeConverted(selectedQuote) && (
-                  <button
-                    onClick={() => handleConvertToInvoice(selectedQuote)}
-                    className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
-                  >
-                    Convertir en facture
-                  </button>
-                )}
-
+              {/* Actions */}
+              <div className="mt-8 flex justify-end space-x-3">
                 {selectedQuote.status === 'sent' && (
                   <>
                     <button
                       onClick={() => handleAcceptQuote(selectedQuote.id)}
                       className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
                     >
-                      Marquer comme accepté
+                      Accepter
                     </button>
                     <button
                       onClick={() => handleRejectQuote(selectedQuote.id)}
                       className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
                     >
-                      Marquer comme rejeté
+                      Rejeter
                     </button>
                   </>
                 )}
-
+                {selectedQuote.status === 'accepted' && (
+                  <button
+                    onClick={() => handleConvertToInvoice(selectedQuote)}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                  >
+                    Convertir en facture
+                  </button>
+                )}
                 <button
-                  onClick={() => handleExportQuote(selectedQuote)}
+                  onClick={() => handleEditQuote(selectedQuote)}
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
                 >
-                  Exporter
+                  Modifier
                 </button>
-
                 <button
                   onClick={() => setSelectedQuote(null)}
                   className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
@@ -615,109 +638,6 @@ const Quotes: React.FC = () => {
           </div>
         </div>
       )}
-    </div>
-  );
-};
-
-// Stats cards component
-const StatsCards: React.FC = () => {
-  const [stats, setStats] = useState({
-    total: 0,
-    draft: 0,
-    sent: 0,
-    accepted: 0,
-    rejected: 0,
-    expired: 0,
-    totalValue: 0,
-    acceptedValue: 0,
-    pendingValue: 0
-  });
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const loadStats = async () => {
-      try {
-        setLoading(true);
-        const quoteStats = await quoteService.getQuoteStats();
-        setStats(quoteStats);
-      } catch (error) {
-        console.error('Error loading quote stats:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadStats();
-  }, []);
-
-  if (loading) {
-    return (
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        {[...Array(4)].map((_, index) => (
-          <div key={index} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 animate-pulse">
-            <div className="h-4 bg-gray-200 rounded w-1/3 mb-2"></div>
-            <div className="h-6 bg-gray-300 rounded w-1/4"></div>
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <div className="flex items-center">
-          <div className="flex-shrink-0">
-            <FileText className="w-8 h-8 text-blue-600" />
-          </div>
-          <div className="ml-4">
-            <p className="text-sm font-medium text-gray-600">Total devis</p>
-            <p className="text-2xl font-bold text-gray-900">{stats.total}</p>
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <div className="flex items-center">
-          <div className="flex-shrink-0">
-            <CheckCircle className="w-8 h-8 text-green-600" />
-          </div>
-          <div className="ml-4">
-            <p className="text-sm font-medium text-gray-600">Acceptés</p>
-            <p className="text-2xl font-bold text-gray-900">{stats.accepted}</p>
-            <p className="text-xs text-green-600 mt-1">
-              {formatCurrency(stats.acceptedValue)}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <div className="flex items-center">
-          <div className="flex-shrink-0">
-            <Clock className="w-8 h-8 text-orange-600" />
-          </div>
-          <div className="ml-4">
-            <p className="text-sm font-medium text-gray-600">En attente</p>
-            <p className="text-2xl font-bold text-gray-900">{stats.sent}</p>
-            <p className="text-xs text-orange-600 mt-1">
-              {formatCurrency(stats.pendingValue)}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <div className="flex items-center">
-          <div className="flex-shrink-0">
-            <TrendingUp className="w-8 h-8 text-blue-600" />
-          </div>
-          <div className="ml-4">
-            <p className="text-sm font-medium text-gray-600">Valeur totale</p>
-            <p className="text-2xl font-bold text-gray-900">{formatCurrency(stats.totalValue)}</p>
-          </div>
-        </div>
-      </div>
     </div>
   );
 };

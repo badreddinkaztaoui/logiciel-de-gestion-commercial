@@ -1,18 +1,21 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Plus, 
-  Edit, 
-  Eye, 
-  Trash2, 
+import {
+  Plus,
+  Edit,
+  Eye,
+  Trash2,
   Search,
   Building,
   Mail,
   Phone,
   MapPin,
-  User
+  Package,
+  FileText,
+  Loader2
 } from 'lucide-react';
 import { supplierService } from '../services/supplierService';
 import { Supplier } from '../types';
+import { formatDate } from '../utils/formatters';
 import SupplierForm from './SupplierForm';
 
 const Suppliers: React.FC = () => {
@@ -22,6 +25,11 @@ const Suppliers: React.FC = () => {
   const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
   const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null);
   const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState({
+    total: 0,
+    withCompany: 0,
+    withICE: 0
+  });
 
   useEffect(() => {
     loadSuppliers();
@@ -32,6 +40,13 @@ const Suppliers: React.FC = () => {
       setLoading(true);
       const savedSuppliers = await supplierService.getSuppliers();
       setSuppliers(savedSuppliers);
+
+      // Calculate stats
+      setStats({
+        total: savedSuppliers.length,
+        withCompany: savedSuppliers.filter(s => s.company).length,
+        withICE: savedSuppliers.filter(s => s.ice).length
+      });
     } catch (error) {
       console.error('Error loading suppliers:', error);
     } finally {
@@ -40,10 +55,11 @@ const Suppliers: React.FC = () => {
   };
 
   const filteredSuppliers = suppliers.filter(supplier => {
+    const searchLower = searchTerm.toLowerCase();
     return (
-      supplier.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      supplier.contactName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      supplier.email.toLowerCase().includes(searchTerm.toLowerCase())
+      supplier.name.toLowerCase().includes(searchLower) ||
+      (supplier.company && supplier.company.toLowerCase().includes(searchLower)) ||
+      (supplier.email && supplier.email.toLowerCase().includes(searchLower))
     );
   });
 
@@ -81,26 +97,24 @@ const Suppliers: React.FC = () => {
     }
   };
 
-  const handleCancelForm = () => {
-    setShowForm(false);
-    setEditingSupplier(null);
-  };
-
   if (showForm) {
     return (
       <SupplierForm
         editingSupplier={editingSupplier}
-        onSave={handleSaveSupplier}
-        onCancel={handleCancelForm}
+        onSave={() => handleSaveSupplier(editingSupplier as Supplier)}
+        onCancel={() => {
+          setShowForm(false);
+          setEditingSupplier(null);
+        }}
       />
     );
   }
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="flex items-center justify-center h-full">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto mb-4" />
           <p className="text-gray-600">Chargement des fournisseurs...</p>
         </div>
       </div>
@@ -108,18 +122,18 @@ const Suppliers: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="h-full flex flex-col p-6 space-y-6 overflow-y-auto">
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center space-y-4 sm:space-y-0">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Fournisseurs</h1>
-          <p className="text-gray-600">Gérez vos fournisseurs pour les bons de commande</p>
+          <p className="text-gray-600 text-sm">Gérez vos fournisseurs pour les bons de commande</p>
         </div>
 
         <div className="flex items-center space-x-3">
           <button
             onClick={handleCreateSupplier}
-            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
           >
             <Plus className="w-4 h-4" />
             <span>Nouveau fournisseur</span>
@@ -127,7 +141,46 @@ const Suppliers: React.FC = () => {
         </div>
       </div>
 
-      {/* Filters */}
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
+          <div className="flex items-center">
+            <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+              <Building className="w-5 h-5 text-blue-600" />
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-500">Total fournisseurs</p>
+              <p className="text-2xl font-semibold text-gray-900">{stats.total}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
+          <div className="flex items-center">
+            <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
+              <Package className="w-5 h-5 text-green-600" />
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-500">Avec entreprise</p>
+              <p className="text-2xl font-semibold text-gray-900">{stats.withCompany}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
+          <div className="flex items-center">
+            <div className="w-10 h-10 bg-orange-100 rounded-lg flex items-center justify-center">
+              <FileText className="w-5 h-5 text-orange-600" />
+            </div>
+            <div className="ml-4">
+              <p className="text-sm font-medium text-gray-500">Avec ICE</p>
+              <p className="text-2xl font-semibold text-gray-900">{stats.withICE}</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Search Bar */}
       <div className="flex">
         <div className="relative flex-1">
           <Search className="w-5 h-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
@@ -136,13 +189,13 @@ const Suppliers: React.FC = () => {
             placeholder="Rechercher fournisseurs..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10 pr-4 py-2 w-full border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            className="pl-10 pr-4 py-2 w-full border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
           />
         </div>
       </div>
 
-      {/* Suppliers List */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+      {/* Suppliers Table */}
+      <div className="flex-1 bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
@@ -154,13 +207,13 @@ const Suppliers: React.FC = () => {
                   Contact
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Email
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Téléphone
+                  Entreprise
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Adresse
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  ICE
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Actions
@@ -172,36 +225,53 @@ const Suppliers: React.FC = () => {
                 <tr key={supplier.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center">
-                      <div className="flex-shrink-0 h-10 w-10 bg-blue-100 rounded-full flex items-center justify-center">
-                        <Building className="w-6 h-6 text-blue-600" />
+                      <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                        <Building className="w-5 h-5 text-blue-600" />
                       </div>
                       <div className="ml-4">
                         <div className="text-sm font-medium text-gray-900">{supplier.name}</div>
-                        {supplier.taxNumber && (
-                          <div className="text-xs text-gray-500">TVA: {supplier.taxNumber}</div>
-                        )}
                       </div>
                     </div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {supplier.contactName}
-                  </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900 flex items-center">
-                      <Mail className="w-4 h-4 mr-2 text-gray-500" />
-                      {supplier.email}
+                    <div className="text-sm text-gray-900">
+                      <div className="flex items-center">
+                        <Mail className="w-4 h-4 mr-2 text-gray-400" />
+                        {supplier.email || '-'}
+                      </div>
+                      {supplier.phone && (
+                        <div className="flex items-center mt-1">
+                          <Phone className="w-4 h-4 mr-2 text-gray-400" />
+                          {supplier.phone}
+                        </div>
+                      )}
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900 flex items-center">
-                      <Phone className="w-4 h-4 mr-2 text-gray-500" />
-                      {supplier.phone}
+                    <div className="text-sm text-gray-900">
+                      {supplier.company ? (
+                        <div className="flex items-center">
+                          <Building className="w-4 h-4 mr-2 text-gray-400" />
+                          {supplier.company}
+                        </div>
+                      ) : (
+                        <span className="text-gray-400">-</span>
+                      )}
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900 flex items-center">
-                      <MapPin className="w-4 h-4 mr-2 text-gray-500" />
-                      {supplier.city}, {supplier.country}
+                    {supplier.address ? (
+                      <div className="text-sm text-gray-900 flex items-center">
+                        <MapPin className="w-4 h-4 mr-2 text-gray-400" />
+                        {supplier.city || supplier.address}
+                      </div>
+                    ) : (
+                      <span className="text-sm text-gray-400">-</span>
+                    )}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="text-sm text-gray-900">
+                      {supplier.ice ? supplier.ice : <span className="text-gray-400">-</span>}
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
@@ -240,7 +310,7 @@ const Suppliers: React.FC = () => {
             <Building className="w-12 h-12 text-gray-400 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">Aucun fournisseur trouvé</h3>
             <p className="text-gray-500 mb-4">
-              {suppliers.length === 0 
+              {suppliers.length === 0
                 ? "Ajoutez votre premier fournisseur"
                 : "Aucun fournisseur ne correspond à vos critères de recherche"
               }
@@ -248,10 +318,10 @@ const Suppliers: React.FC = () => {
             {suppliers.length === 0 && (
               <button
                 onClick={handleCreateSupplier}
-                className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                className="inline-flex items-center px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700"
               >
                 <Plus className="w-4 h-4 mr-2" />
-                Ajouter maintenant
+                Ajouter un fournisseur
               </button>
             )}
           </div>
@@ -263,7 +333,7 @@ const Suppliers: React.FC = () => {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg max-w-2xl w-full">
             <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-              <h3 className="text-lg font-semibold">{selectedSupplier.name}</h3>
+              <h3 className="text-lg font-semibold text-gray-900">{selectedSupplier.name}</h3>
               <button
                 onClick={() => setSelectedSupplier(null)}
                 className="text-gray-400 hover:text-gray-600 text-2xl"
@@ -276,24 +346,30 @@ const Suppliers: React.FC = () => {
                 <div>
                   <h4 className="font-medium text-gray-900 mb-3 flex items-center">
                     <Building className="w-4 h-4 mr-2" />
-                    Informations entreprise
+                    Informations fournisseur
                   </h4>
                   <div className="space-y-2 text-sm">
-                    <p><span className="text-gray-600">Nom:</span> {selectedSupplier.name}</p>
-                    {selectedSupplier.taxNumber && (
-                      <p><span className="text-gray-600">N° TVA:</span> {selectedSupplier.taxNumber}</p>
+                    <p><span className="text-gray-500">Nom:</span> {selectedSupplier.name}</p>
+                    {selectedSupplier.company && (
+                      <p><span className="text-gray-500">Entreprise:</span> {selectedSupplier.company}</p>
+                    )}
+                    {selectedSupplier.ice && (
+                      <p><span className="text-gray-500">ICE:</span> {selectedSupplier.ice}</p>
                     )}
                   </div>
                 </div>
                 <div>
                   <h4 className="font-medium text-gray-900 mb-3 flex items-center">
-                    <User className="w-4 h-4 mr-2" />
+                    <Mail className="w-4 h-4 mr-2" />
                     Contact
                   </h4>
                   <div className="space-y-2 text-sm">
-                    <p><span className="text-gray-600">Nom:</span> {selectedSupplier.contactName}</p>
-                    <p><span className="text-gray-600">Email:</span> {selectedSupplier.email}</p>
-                    <p><span className="text-gray-600">Téléphone:</span> {selectedSupplier.phone}</p>
+                    {selectedSupplier.email && (
+                      <p><span className="text-gray-500">Email:</span> {selectedSupplier.email}</p>
+                    )}
+                    {selectedSupplier.phone && (
+                      <p><span className="text-gray-500">Téléphone:</span> {selectedSupplier.phone}</p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -302,11 +378,17 @@ const Suppliers: React.FC = () => {
                   <MapPin className="w-4 h-4 mr-2" />
                   Adresse
                 </h4>
-                <div className="space-y-1 text-sm">
-                  <p>{selectedSupplier.address}</p>
-                  <p>{selectedSupplier.postalCode} {selectedSupplier.city}</p>
-                  <p>{selectedSupplier.country}</p>
-                </div>
+                {selectedSupplier.address ? (
+                  <div className="space-y-1 text-sm">
+                    <p>{selectedSupplier.address}</p>
+                    {selectedSupplier.postal_code && selectedSupplier.city && (
+                      <p>{selectedSupplier.postal_code} {selectedSupplier.city}</p>
+                    )}
+                    <p>{selectedSupplier.country}</p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-400">Aucune adresse renseignée</p>
+                )}
               </div>
               {selectedSupplier.notes && (
                 <div className="mt-6">
@@ -314,16 +396,20 @@ const Suppliers: React.FC = () => {
                   <p className="text-sm bg-gray-50 p-3 rounded-lg">{selectedSupplier.notes}</p>
                 </div>
               )}
+              <div className="mt-6 text-sm text-gray-500">
+                {selectedSupplier.created_at && <p>Créé le {formatDate(selectedSupplier.created_at)}</p>}
+                {selectedSupplier.updated_at && <p>Dernière mise à jour le {formatDate(selectedSupplier.updated_at)}</p>}
+              </div>
               <div className="mt-8 flex justify-end space-x-3">
                 <button
                   onClick={() => handleEditSupplier(selectedSupplier)}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                  className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700"
                 >
                   Modifier
                 </button>
                 <button
                   onClick={() => setSelectedSupplier(null)}
-                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                  className="px-4 py-2 border border-gray-200 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50"
                 >
                   Fermer
                 </button>

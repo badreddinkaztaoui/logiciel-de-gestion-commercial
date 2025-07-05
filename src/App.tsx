@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from './stores/authStore';
 import LoginPage from './components/auth/LoginPage';
@@ -16,9 +16,6 @@ import PurchaseOrders from './components/PurchaseOrders';
 import Suppliers from './components/Suppliers';
 import Customers from './components/Customers';
 import SalesJournal from './components/SalesJournal';
-import { wooCommerceService } from './services/woocommerce';
-import { invoiceService } from './services/invoiceService';
-import { WooCommerceOrder, Invoice } from './types';
 import { Toaster } from 'react-hot-toast';
 
 const App: React.FC = () => {

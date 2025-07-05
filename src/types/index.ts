@@ -34,18 +34,17 @@ export interface WooCommerceOrder {
   shipping_total: string;
   shipping_tax: string;
   customer_id: number;
-  billing: {
-    first_name: string;
-    last_name: string;
-    company: string;
-    address_1: string;
-    address_2: string;
-    city: string;
-    state: string;
-    postcode: string;
-    country: string;
-    email: string;
-    phone: string;
+  billing?: {
+    first_name?: string;
+    last_name?: string;
+    company?: string;
+    email?: string;
+    phone?: string;
+    address_1?: string;
+    address_2?: string;
+    city?: string;
+    postcode?: string;
+    country?: string;
   };
   shipping: {
     first_name: string;
@@ -58,7 +57,14 @@ export interface WooCommerceOrder {
     postcode: string;
     country: string;
   };
-  line_items: WooCommerceLineItem[];
+  line_items?: Array<{
+    id: number;
+    name: string;
+    product_id: number;
+    quantity: number;
+    price: string;
+    tax_class?: string;
+  }>;
   tax_lines: {
     id: number;
     rate_code: string;
@@ -75,19 +81,24 @@ export interface WooCommerceOrder {
 }
 
 export interface Customer {
-  id: string;
-  name: string;
+  id: string; // UUID
+  woocommerce_id?: number;
+  first_name: string;
+  last_name: string;
   company?: string;
   email: string;
   phone?: string;
   address?: string;
   city?: string;
   postal_code?: string;
-  country: string;
+  country?: string;
   ice?: string;
   notes?: string;
-  created_at: string;
-  updated_at: string;
+  billing_data?: Record<string, any>;
+  shipping_data?: Record<string, any>;
+  user_id?: string; // UUID
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface Quote {
@@ -129,26 +140,26 @@ export interface Invoice {
   customer: {
     name: string;
     email: string;
-    company?: string;
+    company: string;
     address: string;
     city: string;
     postalCode: string;
     country: string;
   };
-  items: {
+  items: Array<{
     id: string;
     description: string;
     quantity: number;
-    unitPrice: number; // Prix unitaire TTC (comme WooCommerce)
-    total: number; // Total TTC pour cette ligne
-    productId?: number; // WooCommerce product ID for stock management
-    sku?: string; // Product SKU
-    taxRate?: number; // Tax rate for this item (0, 7, 10, 20%)
-    taxAmount?: number; // Tax amount for this item
-  }[];
-  subtotal: number; // Sous-total HT
-  tax: number; // Total des taxes
-  total: number; // Total TTC
+    unitPrice: number;
+    total: number;
+    taxRate: number;
+    taxAmount: number;
+    productId?: number;
+    sku?: string;
+  }>;
+  subtotal: number;
+  tax: number;
+  total: number;
   notes?: string;
   woocommerceStatus?: string; // WooCommerce order status
   lastSyncedAt?: string; // Last sync timestamp with WooCommerce
@@ -157,6 +168,7 @@ export interface Invoice {
 export interface DeliveryNote {
   id: string;
   number: string;
+  orderId?: number;
   invoice_id?: string;
   customer_id?: string;
   customer_data?: any;
@@ -176,10 +188,22 @@ export interface ReturnNote {
   invoice_id?: string;
   delivery_note_id?: string;
   customer_id?: string;
-  customer_data?: any;
+  customer_data?: {
+    name: string;
+    email: string;
+    company?: string;
+  };
   date: string;
   status: 'draft' | 'processed' | 'cancelled';
-  items: any[];
+  items: Array<{
+    id: string;
+    productId?: number;
+    description: string;
+    quantity: number;
+    condition: 'new' | 'used' | 'damaged';
+    reason?: string;
+    refundAmount: number;
+  }>;
   reason?: string;
   notes?: string;
   created_at: string;
@@ -195,11 +219,11 @@ export interface Supplier {
   address?: string;
   city?: string;
   postal_code?: string;
-  country: string;
+  country?: string;
   ice?: string;
   notes?: string;
-  created_at: string;
-  updated_at: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface PurchaseOrder {
@@ -291,4 +315,55 @@ export interface SalesJournalLine {
   taxAmount: number;
   customerName: string;
   customerEmail?: string;
+}
+
+export interface WooCommerceProduct {
+  id: number;
+  name: string;
+  price: string;
+  sku?: string;
+  tax_class?: string;
+}
+
+export interface Client {
+  id: string;
+  woocommerce_id?: number;
+  first_name: string;
+  last_name: string;
+  company?: string;
+  email: string;
+  phone?: string;
+  address?: string;
+  city?: string;
+  postal_code?: string;
+  country?: string;
+  ice?: string;
+  notes?: string;
+  billing_data?: {
+    first_name?: string;
+    last_name?: string;
+    company?: string;
+    address?: string;
+    city?: string;
+    postal_code?: string;
+    country?: string;
+    email?: string;
+    phone?: string;
+  };
+  shipping_data?: {
+    first_name?: string;
+    last_name?: string;
+    company?: string;
+    address?: string;
+    city?: string;
+    postal_code?: string;
+    country?: string;
+  };
+  user_id?: string;
+  created_at?: string;
+  updated_at?: string;
+  // Computed fields from related data
+  ordersCount?: number;
+  lastOrderDate?: string;
+  totalRevenue?: number;
 }

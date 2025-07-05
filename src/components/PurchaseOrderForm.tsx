@@ -9,11 +9,11 @@ import {
   Package,
   AlertCircle
 } from 'lucide-react';
-import { PurchaseOrder, Supplier, ProductWithQuantity } from '../types';
+import { PurchaseOrder, Supplier } from '../types';
 import { purchaseOrderService } from '../services/purchaseOrderService';
 import { supplierService } from '../services/supplierService';
 import { formatCurrency } from '../utils/formatters';
-import ProductSearch from './ProductSearch';
+import ProductSearch, { ProductWithQuantity } from './ProductSearch';
 import { documentNumberingService } from '../services/documentNumberingService';
 
 interface PurchaseOrderFormProps {
@@ -31,14 +31,19 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
     id: '',
     number: '',
     date: new Date().toISOString().split('T')[0],
-    expectedDeliveryDate: '',
+    expected_delivery_date: '',
     status: 'draft',
-    supplierId: '',
+    supplier_id: '',
+    supplier_data: null,
     items: [],
     subtotal: 0,
-    tax: 0,
+    tax_rate: 20,
+    tax_amount: 0,
     total: 0,
-    notes: ''
+    currency: 'MAD',
+    notes: '',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
   });
 
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -89,24 +94,29 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
               id: crypto.randomUUID(),
               number: orderNumber,
               date: new Date().toISOString().split('T')[0],
-              expectedDeliveryDate: expectedDeliveryStr,
+              expected_delivery_date: expectedDeliveryStr,
               status: 'draft',
-              supplierId: savedSuppliers.length > 0 ? savedSuppliers[0].id : '',
+              supplier_id: savedSuppliers.length > 0 ? savedSuppliers[0].id : '',
+              supplier_data: null,
               items: [{
                 id: crypto.randomUUID(),
-                productId: '0',
+                product_id: '0',
                 description: '',
                 quantity: 1,
                 received: 0,
-                unitPrice: 0,
+                unit_price: 0,
                 total: 0,
-                taxRate: 20,
-                taxAmount: 0
+                tax_rate: 20,
+                tax_amount: 0
               }],
               subtotal: 0,
-              tax: 0,
+              tax_rate: 20,
+              tax_amount: 0,
               total: 0,
-              notes: ''
+              currency: 'MAD',
+              notes: '',
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
             });
             setNumberReserved(true);
           } catch (numError) {
@@ -137,14 +147,14 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
 
     const subtotal = round2(formData.items?.reduce((sum, item) => {
       const itemTTC = item.total || 0;
-      const taxRate = (item.taxRate || 20) / 100;
+      const taxRate = (item.tax_rate || 20) / 100;
       const itemHT = round2(itemTTC / (1 + taxRate));
       return sum + itemHT;
     }, 0) || 0);
 
-    const tax = round2(formData.items?.reduce((sum, item) => {
+    const tax_amount = round2(formData.items?.reduce((sum, item) => {
       const itemTTC = item.total || 0;
-      const taxRate = (item.taxRate || 20) / 100;
+      const taxRate = (item.tax_rate || 20) / 100;
       const itemHT = round2(itemTTC / (1 + taxRate));
       const itemTax = round2(itemHT * taxRate);
       return sum + itemTax;
@@ -152,12 +162,12 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
 
     const total = round2(formData.items?.reduce((sum, item) => sum + (item.total || 0), 0) || 0);
 
-    console.log('Calculated purchase order totals (TTC system):', { subtotal, tax, total });
+    console.log('Calculated purchase order totals (TTC system):', { subtotal, tax_amount, total });
 
     setFormData(prev => ({
       ...prev,
       subtotal,
-      tax,
+      tax_amount,
       total
     }));
   };
@@ -171,22 +181,22 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
       [field]: value
     };
 
-    if (field === 'quantity' || field === 'unitPrice') {
-      const newTotalTTC = round2(newItems[index].quantity * newItems[index].unitPrice);
+    if (field === 'quantity' || field === 'unit_price') {
+      const newTotalTTC = round2(newItems[index].quantity * newItems[index].unit_price);
       newItems[index].total = newTotalTTC;
 
-      const taxRate = (newItems[index].taxRate || 20) / 100;
+      const taxRate = (newItems[index].tax_rate || 20) / 100;
       const totalHT = round2(newTotalTTC / (1 + taxRate));
-      newItems[index].taxAmount = round2(totalHT * taxRate);
+      newItems[index].tax_amount = round2(totalHT * taxRate);
 
-      console.log(`Purchase order item total TTC: ${newTotalTTC}, HT: ${totalHT}, tax: ${newItems[index].taxAmount}`);
+      console.log(`Purchase order item total TTC: ${newTotalTTC}, HT: ${totalHT}, tax: ${newItems[index].tax_amount}`);
     }
 
-    if (field === 'taxRate') {
+    if (field === 'tax_rate') {
       const totalTTC = newItems[index].total;
       const taxRate = parseFloat(value) / 100;
       const totalHT = round2(totalTTC / (1 + taxRate));
-      newItems[index].taxAmount = round2(totalHT * taxRate);
+      newItems[index].tax_amount = round2(totalHT * taxRate);
       console.log(`Tax rate changed to ${value}% for purchase order item "${newItems[index].description}", TTC stays ${totalTTC}`);
     }
 
@@ -205,14 +215,14 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
         ...(prev.items || []),
         {
           id: crypto.randomUUID(),
-          productId: '0',
+          product_id: '0',
           description: '',
           quantity: 1,
           received: 0,
-          unitPrice: 0,
+          unit_price: 0,
           total: 0,
-          taxRate: 20,
-          taxAmount: 0
+          tax_rate: 20,
+          tax_amount: 0
         }
       ]
     }));
@@ -227,28 +237,29 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
     }));
   };
 
-  const handleProductSelect = async (productWithQuantity: ProductWithQuantity) => {
-    console.log(`Adding product "${productWithQuantity.name}" to purchase order with tax rate ${productWithQuantity.taxRate}% (TTC pricing)`);
+  const handleProductSelect = async (product: ProductWithQuantity) => {
+    console.log(`Adding product "${product.name}" to purchase order with tax rate 20% (TTC pricing)`);
 
-    const priceTTC = round2(parseFloat(productWithQuantity.price));
-    const totalTTC = round2(priceTTC * productWithQuantity.quantity);
+    const priceTTC = round2(parseFloat(product.price));
+    const totalTTC = round2(priceTTC * product.quantity);
 
-    const totalHT = round2(totalTTC / (1 + productWithQuantity.taxRate / 100));
-    const taxAmount = round2(totalHT * (productWithQuantity.taxRate / 100));
+    const taxRate = 20; // Default tax rate
+    const totalHT = round2(totalTTC / (1 + taxRate / 100));
+    const taxAmount = round2(totalHT * (taxRate / 100));
 
-    console.log(`Purchase order product price: TTC=${priceTTC} (keeping TTC price, tax rate: ${productWithQuantity.taxRate}%)`);
+    console.log(`Purchase order product price: TTC=${priceTTC} (keeping TTC price, tax rate: ${taxRate}%)`);
 
     const newItem = {
       id: crypto.randomUUID(),
-      productId: productWithQuantity.id.toString(),
-      sku: productWithQuantity.sku,
-      description: productWithQuantity.name,
-      quantity: productWithQuantity.quantity,
+      product_id: product.id.toString(),
+      sku: product.sku,
+      description: product.name,
+      quantity: product.quantity,
       received: 0,
-      unitPrice: priceTTC,
+      unit_price: priceTTC,
       total: totalTTC,
-      taxRate: productWithQuantity.taxRate,
-      taxAmount: taxAmount
+      tax_rate: taxRate,
+      tax_amount: taxAmount
     };
 
     setFormData(prev => ({
@@ -262,12 +273,12 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
   const validateForm = (): boolean => {
     const newErrors: {[key: string]: string} = {};
 
-    if (!formData.supplierId) {
+    if (!formData.supplier_id) {
       newErrors.supplier = 'Veuillez sélectionner un fournisseur';
     }
 
-    if (!formData.expectedDeliveryDate) {
-      newErrors.expectedDeliveryDate = 'Date de livraison attendue requise';
+    if (!formData.expected_delivery_date) {
+      newErrors.expected_delivery_date = 'Date de livraison attendue requise';
     }
 
     if (!formData.items?.length) {
@@ -280,7 +291,7 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
         if (item.quantity <= 0) {
           newErrors[`item_${index}_quantity`] = 'Quantité invalide';
         }
-        if (item.unitPrice < 0) {
+        if (item.unit_price < 0) {
           newErrors[`item_${index}_price`] = 'Prix invalide';
         }
       });
@@ -304,14 +315,19 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
         id: formData.id!,
         number: formData.number!,
         date: formData.date!,
-        expectedDeliveryDate: formData.expectedDeliveryDate!,
+        expected_delivery_date: formData.expected_delivery_date!,
         status: formData.status!,
-        supplierId: formData.supplierId!,
+        supplier_id: formData.supplier_id!,
+        supplier_data: formData.supplier_data,
         items: formData.items!,
         subtotal: formData.subtotal!,
-        tax: formData.tax!,
+        tax_rate: formData.tax_rate!,
+        tax_amount: formData.tax_amount!,
         total: formData.total!,
-        notes: formData.notes
+        currency: formData.currency!,
+        notes: formData.notes,
+        created_at: formData.created_at!,
+        updated_at: new Date().toISOString()
       };
 
       await purchaseOrderService.savePurchaseOrder(purchaseOrder);
@@ -338,7 +354,7 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
     const taxBreakdown = new Map<number, number>();
 
     formData.items?.forEach(item => {
-      const taxRate = item.taxRate || 20;
+      const taxRate = item.tax_rate || 20;
       const totalTTC = item.total || 0;
       const taxRate100 = taxRate / 100;
       const totalHT = round2(totalTTC / (1 + taxRate100));
@@ -358,7 +374,7 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="h-full flex items-center justify-center bg-gray-50">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
           <p className="text-gray-600">Chargement...</p>
@@ -368,8 +384,9 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
   }
 
   return (
-    <div className="max-w-6xl mx-auto">
-      <div className="mb-8">
+    <div className="h-screen flex flex-col overflow-hidden pb-20">
+      {/* Header */}
+      <div className="flex-none p-6 bg-white border-b">
         <div className="flex items-center justify-between">
           <div>
             <button
@@ -412,297 +429,300 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
         </div>
       </div>
 
-      {errors.general && (
-        <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4 flex items-start space-x-3">
-          <AlertCircle className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" />
-          <div>
-            <p className="text-sm font-medium text-red-800">{errors.general}</p>
-          </div>
-        </div>
-      )}
+      {/* Scrollable Content */}
+      <div className="flex-1 overflow-auto p-6">
+        <form onSubmit={handleSubmit} className="max-w-6xl mx-auto space-y-6">
+          {errors.general && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-start space-x-3">
+              <AlertCircle className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="text-sm font-medium text-red-800">{errors.general}</p>
+              </div>
+            </div>
+          )}
 
-      <form onSubmit={handleSubmit} className="space-y-8">
-        {/* Order Header */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-6">Informations générales</h2>
+          {/* Order Header */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-6">Informations générales</h2>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Numéro de bon de commande
-              </label>
-              <div className="relative">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Numéro de bon de commande
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={formData.number || 'Génération...'}
+                    className="w-full px-3 py-2 border border-gray-300 bg-gray-50 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 cursor-not-allowed"
+                    required
+                    readOnly
+                  />
+                  <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                    <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">Auto</span>
+                  </div>
+                </div>
+                {!numberReserved && (
+                  <p className="text-xs text-orange-500 mt-1">Réservation du numéro en cours...</p>
+                )}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Date de commande
+                </label>
                 <input
-                  type="text"
-                  value={formData.number || 'Génération...'}
-                  className="w-full px-3 py-2 border border-gray-300 bg-gray-50 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 cursor-not-allowed"
+                  type="date"
+                  value={formData.date}
+                  onChange={(e) => setFormData(prev => ({ ...prev, date: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   required
-                  readOnly
                 />
-                <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                  <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">Auto</span>
-                </div>
               </div>
-              {!numberReserved && (
-                <p className="text-xs text-orange-500 mt-1">Réservation du numéro en cours...</p>
-              )}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Livraison attendue
+                </label>
+                <input
+                  type="date"
+                  value={formData.expected_delivery_date}
+                  onChange={(e) => setFormData(prev => ({ ...prev, expected_delivery_date: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  required
+                />
+                {errors.expected_delivery_date && <p className="text-red-500 text-sm mt-1">{errors.expected_delivery_date}</p>}
+              </div>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Date de commande
-              </label>
-              <input
-                type="date"
-                value={formData.date}
-                onChange={(e) => setFormData(prev => ({ ...prev, date: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Livraison attendue
-              </label>
-              <input
-                type="date"
-                value={formData.expectedDeliveryDate}
-                onChange={(e) => setFormData(prev => ({ ...prev, expectedDeliveryDate: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                required
-              />
-              {errors.expectedDeliveryDate && <p className="text-red-500 text-sm mt-1">{errors.expectedDeliveryDate}</p>}
+
+            <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Fournisseur *
+                </label>
+                <select
+                  value={formData.supplier_id}
+                  onChange={(e) => setFormData(prev => ({ ...prev, supplier_id: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  required
+                >
+                  <option value="">Sélectionner un fournisseur</option>
+                  {suppliers.map((supplier) => (
+                    <option key={supplier.id} value={supplier.id}>
+                      {supplier.name}
+                    </option>
+                  ))}
+                </select>
+                {errors.supplier && <p className="text-red-500 text-sm mt-1">{errors.supplier}</p>}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Statut
+                </label>
+                <select
+                  value={formData.status}
+                  onChange={(e) => setFormData(prev => ({ ...prev, status: e.target.value as any }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="draft">Brouillon</option>
+                  <option value="sent">Envoyé</option>
+                  <option value="confirmed">Confirmé</option>
+                  <option value="received">Reçu</option>
+                  <option value="cancelled">Annulé</option>
+                </select>
+              </div>
             </div>
           </div>
 
-          <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Fournisseur *
-              </label>
-              <select
-                value={formData.supplierId}
-                onChange={(e) => setFormData(prev => ({ ...prev, supplierId: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                required
-              >
-                <option value="">Sélectionner un fournisseur</option>
-                {suppliers.map((supplier) => (
-                  <option key={supplier.id} value={supplier.id}>
-                    {supplier.name}
-                  </option>
+          {/* Items */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-lg font-semibold text-gray-900">Articles à commander</h2>
+              <div className="flex space-x-3">
+                <button
+                  type="button"
+                  onClick={() => setShowProductSearch(true)}
+                  className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                >
+                  <Search className="w-4 h-4" />
+                  <span>Produit WooCommerce</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={addItem}
+                  className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Article manuel</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Price info notice */}
+            <div className="mb-4 bg-blue-50 border border-blue-200 rounded-lg p-3">
+              <div className="flex items-start space-x-2">
+                <Package className="w-4 h-4 text-blue-500 mt-0.5" />
+                <div className="text-sm text-blue-700">
+                  <strong>Prix TTC:</strong> Les prix sont saisis en TTC (comme WooCommerce).
+                  Le sous-total HT et la TVA sont calculés automatiquement avec une précision de 2 décimales.
+                </div>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="min-w-full">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Quantité</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Prix unitaire TTC</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total TTC</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Taux TVA</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">TVA</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {formData.items?.map((item, index) => {
+                    const totalTTC = item.total || 0;
+                    const taxRate100 = (item.tax_rate || 20) / 100;
+                    const totalHT = round2(totalTTC / (1 + taxRate100));
+                    const itemTaxAmount = round2(totalHT * taxRate100);
+
+                    return (
+                      <tr key={item.id}>
+                        <td className="px-6 py-4">
+                          <input
+                            type="text"
+                            value={item.description}
+                            onChange={(e) => handleItemChange(index, 'description', e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            placeholder="Description de l'article"
+                          />
+                          {item.sku && (
+                            <p className="text-xs text-gray-500 mt-1">SKU: {item.sku}</p>
+                          )}
+                          {item.product_id && parseInt(item.product_id) > 0 && (
+                            <p className="text-xs text-blue-600 mt-1 flex items-center">
+                              <Package className="w-3 h-3 mr-1" />
+                              WooCommerce ID: {item.product_id}
+                            </p>
+                          )}
+                          {errors[`item_${index}_description`] && (
+                            <p className="text-red-500 text-xs mt-1">{errors[`item_${index}_description`]}</p>
+                          )}
+                        </td>
+                        <td className="px-6 py-4">
+                          <input
+                            type="number"
+                            value={item.quantity}
+                            onChange={(e) => handleItemChange(index, 'quantity', parseInt(e.target.value) || 0)}
+                            className="w-20 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            min="1"
+                          />
+                          {errors[`item_${index}_quantity`] && (
+                            <p className="text-red-500 text-xs mt-1">{errors[`item_${index}_quantity`]}</p>
+                          )}
+                        </td>
+                        <td className="px-6 py-4">
+                          <input
+                            type="number"
+                            value={item.unit_price.toFixed(2)}
+                            onChange={(e) => handleItemChange(index, 'unit_price', parseFloat(e.target.value) || 0)}
+                            className="w-32 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            min="0"
+                            step="0.01"
+                          />
+                          <p className="text-xs text-gray-500 mt-1">TTC</p>
+                          {errors[`item_${index}_price`] && (
+                            <p className="text-red-500 text-xs mt-1">{errors[`item_${index}_price`]}</p>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 font-medium">
+                          <div>
+                            <div className="text-blue-600 font-bold">{formatCurrency(totalTTC)}</div>
+                            <div className="text-xs text-gray-500">HT: {formatCurrency(totalHT)}</div>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <select
+                            value={item.tax_rate ?? 20}
+                            onChange={(e) => handleItemChange(index, 'tax_rate', parseFloat(e.target.value))}
+                            className="w-20 px-2 py-1 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          >
+                            <option value={0}>0%</option>
+                            <option value={7}>7%</option>
+                            <option value={10}>10%</option>
+                            <option value={20}>20%</option>
+                          </select>
+                        </td>
+                        <td className="px-6 py-4 font-medium text-blue-600">
+                          {formatCurrency(itemTaxAmount)}
+                        </td>
+                        <td className="px-6 py-4">
+                          <button
+                            type="button"
+                            onClick={() => removeItem(index)}
+                            className="text-red-600 hover:text-red-800 p-2 hover:bg-red-50 rounded-lg transition-colors"
+                            disabled={formData.items?.length === 1}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {errors.items && <p className="text-red-500 text-sm mt-2">{errors.items}</p>}
+          </div>
+
+          {/* Totals with Tax Breakdown */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div className="flex justify-end">
+              <div className="w-full max-w-md space-y-4">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">Sous-total HT:</span>
+                  <span className="font-medium">{formatCurrency(formData.subtotal || 0)}</span>
+                </div>
+
+                {/* Enhanced Tax Breakdown */}
+                {getTaxBreakdown().map(([rate, amount]) => (
+                  <div key={rate} className="flex justify-between text-sm">
+                    <span className="text-gray-600 flex items-center">
+                      <Percent className="w-3 h-3 mr-1" />
+                      TVA {rate}%:
+                    </span>
+                    <span className="font-medium text-blue-600">{formatCurrency(amount)}</span>
+                  </div>
                 ))}
-              </select>
-              {errors.supplier && <p className="text-red-500 text-sm mt-1">{errors.supplier}</p>}
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Statut
-              </label>
-              <select
-                value={formData.status}
-                onChange={(e) => setFormData(prev => ({ ...prev, status: e.target.value as any }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              >
-                <option value="draft">Brouillon</option>
-                <option value="ordered">Commandé</option>
-                <option value="partial">Partiel</option>
-                <option value="complete">Terminé</option>
-                <option value="cancelled">Annulé</option>
-              </select>
-            </div>
-          </div>
-        </div>
 
-        {/* Items */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-lg font-semibold text-gray-900">Articles à commander</h2>
-            <div className="flex space-x-3">
-              <button
-                type="button"
-                onClick={() => setShowProductSearch(true)}
-                className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-              >
-                <Search className="w-4 h-4" />
-                <span>Produit WooCommerce</span>
-              </button>
-              <button
-                type="button"
-                onClick={addItem}
-                className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Article manuel</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Price info notice */}
-          <div className="mb-4 bg-blue-50 border border-blue-200 rounded-lg p-3">
-            <div className="flex items-start space-x-2">
-              <Package className="w-4 h-4 text-blue-500 mt-0.5" />
-              <div className="text-sm text-blue-700">
-                <strong>Prix TTC:</strong> Les prix sont saisis en TTC (comme WooCommerce).
-                Le sous-total HT et la TVA sont calculés automatiquement avec une précision de 2 décimales.
-              </div>
-            </div>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="min-w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Quantité</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Prix unitaire TTC</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total TTC</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Taux TVA</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">TVA</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {formData.items?.map((item, index) => {
-                  const totalTTC = item.total || 0;
-                  const taxRate100 = (item.taxRate || 20) / 100;
-                  const totalHT = round2(totalTTC / (1 + taxRate100));
-                  const itemTaxAmount = round2(totalHT * taxRate100);
-
-                  return (
-                    <tr key={item.id}>
-                      <td className="px-6 py-4">
-                        <input
-                          type="text"
-                          value={item.description}
-                          onChange={(e) => handleItemChange(index, 'description', e.target.value)}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                          placeholder="Description de l'article"
-                        />
-                        {item.sku && (
-                          <p className="text-xs text-gray-500 mt-1">SKU: {item.sku}</p>
-                        )}
-                        {item.productId && parseInt(item.productId) > 0 && (
-                          <p className="text-xs text-blue-600 mt-1 flex items-center">
-                            <Package className="w-3 h-3 mr-1" />
-                            WooCommerce ID: {item.productId}
-                          </p>
-                        )}
-                        {errors[`item_${index}_description`] && (
-                          <p className="text-red-500 text-xs mt-1">{errors[`item_${index}_description`]}</p>
-                        )}
-                      </td>
-                      <td className="px-6 py-4">
-                        <input
-                          type="number"
-                          value={item.quantity}
-                          onChange={(e) => handleItemChange(index, 'quantity', parseInt(e.target.value) || 0)}
-                          className="w-20 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                          min="1"
-                        />
-                        {errors[`item_${index}_quantity`] && (
-                          <p className="text-red-500 text-xs mt-1">{errors[`item_${index}_quantity`]}</p>
-                        )}
-                      </td>
-                      <td className="px-6 py-4">
-                        <input
-                          type="number"
-                          value={item.unitPrice.toFixed(2)}
-                          onChange={(e) => handleItemChange(index, 'unitPrice', parseFloat(e.target.value) || 0)}
-                          className="w-32 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                          min="0"
-                          step="0.01"
-                        />
-                        <p className="text-xs text-gray-500 mt-1">TTC</p>
-                        {errors[`item_${index}_price`] && (
-                          <p className="text-red-500 text-xs mt-1">{errors[`item_${index}_price`]}</p>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 font-medium">
-                        <div>
-                          <div className="text-blue-600 font-bold">{formatCurrency(totalTTC)}</div>
-                          <div className="text-xs text-gray-500">HT: {formatCurrency(totalHT)}</div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <select
-                          value={item.taxRate ?? 20}
-                          onChange={(e) => handleItemChange(index, 'taxRate', parseFloat(e.target.value))}
-                          className="w-20 px-2 py-1 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        >
-                          <option value={0}>0%</option>
-                          <option value={7}>7%</option>
-                          <option value={10}>10%</option>
-                          <option value={20}>20%</option>
-                        </select>
-                      </td>
-                      <td className="px-6 py-4 font-medium text-blue-600">
-                        {formatCurrency(itemTaxAmount)}
-                      </td>
-                      <td className="px-6 py-4">
-                        <button
-                          type="button"
-                          onClick={() => removeItem(index)}
-                          className="text-red-600 hover:text-red-800 p-2 hover:bg-red-50 rounded-lg transition-colors"
-                          disabled={formData.items?.length === 1}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-
-          {errors.items && <p className="text-red-500 text-sm mt-2">{errors.items}</p>}
-        </div>
-
-        {/* Totals with Tax Breakdown */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <div className="flex justify-end">
-            <div className="w-full max-w-md space-y-4">
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-600">Sous-total HT:</span>
-                <span className="font-medium">{formatCurrency(formData.subtotal || 0)}</span>
-              </div>
-
-              {/* Enhanced Tax Breakdown */}
-              {getTaxBreakdown().map(([rate, amount]) => (
-                <div key={rate} className="flex justify-between text-sm">
-                  <span className="text-gray-600 flex items-center">
-                    <Percent className="w-3 h-3 mr-1" />
-                    TVA {rate}%:
-                  </span>
-                  <span className="font-medium text-blue-600">{formatCurrency(amount)}</span>
+                <div className="flex justify-between text-sm border-t pt-2">
+                  <span className="text-gray-600">Total TVA:</span>
+                  <span className="font-medium text-blue-600">{formatCurrency(formData.tax_amount || 0)}</span>
                 </div>
-              ))}
 
-              <div className="flex justify-between text-sm border-t pt-2">
-                <span className="text-gray-600">Total TVA:</span>
-                <span className="font-medium text-blue-600">{formatCurrency(formData.tax || 0)}</span>
-              </div>
-
-              <div className="flex justify-between text-lg font-bold border-t pt-4">
-                <span>Total TTC:</span>
-                <span className="text-blue-600">{formatCurrency(formData.total || 0)}</span>
+                <div className="flex justify-between text-lg font-bold border-t pt-4">
+                  <span>Total TTC:</span>
+                  <span className="text-blue-600">{formatCurrency(formData.total || 0)}</span>
+                </div>
               </div>
             </div>
           </div>
-        </div>
 
-        {/* Notes */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Notes</h2>
-          <textarea
-            value={formData.notes || ''}
-            onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
-            rows={4}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            placeholder="Notes additionnelles pour le fournisseur..."
-          />
-        </div>
-      </form>
+          {/* Notes */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">Notes</h2>
+            <textarea
+              value={formData.notes || ''}
+              onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
+              rows={4}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              placeholder="Notes additionnelles pour le fournisseur..."
+            />
+          </div>
+        </form>
+      </div>
 
       {/* Product Search Modal */}
       {showProductSearch && (

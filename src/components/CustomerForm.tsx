@@ -1,10 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   Save,
   ArrowLeft,
   User,
   Mail,
-  Phone,
   MapPin,
   Building,
   Hash,
@@ -25,63 +24,39 @@ const CustomerForm: React.FC<CustomerFormProps> = ({
   onCancel
 }) => {
   const [formData, setFormData] = useState<Customer>({
-    id: '',
-    firstName: '',
-    lastName: '',
-    company: '',
-    email: '',
-    phone: '',
-    address: '',
-    city: '',
-    postalCode: '',
-    country: 'Maroc',
-    ice: '',
-    notes: '',
-    createdAt: '',
-    updatedAt: ''
+    id: editingCustomer?.id || crypto.randomUUID(),
+    first_name: editingCustomer?.first_name || '',
+    last_name: editingCustomer?.last_name || '',
+    company: editingCustomer?.company || '',
+    email: editingCustomer?.email || '',
+    phone: editingCustomer?.phone || '',
+    address: editingCustomer?.address || '',
+    city: editingCustomer?.city || '',
+    postal_code: editingCustomer?.postal_code || '',
+    country: editingCustomer?.country || 'Maroc',
+    ice: editingCustomer?.ice || '',
+    notes: editingCustomer?.notes || '',
+    billing_data: editingCustomer?.billing_data || undefined,
+    shipping_data: editingCustomer?.shipping_data || undefined,
+    created_at: editingCustomer?.created_at || new Date().toISOString(),
+    updated_at: editingCustomer?.updated_at || new Date().toISOString()
   });
 
   const [errors, setErrors] = useState<{[key: string]: string}>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [syncToWooCommerce, setSyncToWooCommerce] = useState(false);
-
-  useEffect(() => {
-    if (editingCustomer) {
-      setFormData(editingCustomer);
-      // Disable WooCommerce sync if already synced
-      setSyncToWooCommerce(false);
-    } else {
-      // If creating a new customer, generate an ID
-      setFormData(prev => ({
-        ...prev,
-        id: crypto.randomUUID(),
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      }));
-      // Enable WooCommerce sync by default for new customers
-      setSyncToWooCommerce(true);
-    }
-  }, [editingCustomer]);
-
-  const handleInputChange = (field: keyof Customer, value: string) => {
-    setFormData(prev => ({
-      ...prev,
-      [field]: value,
-      updatedAt: new Date().toISOString()
-    }));
-  };
+  const [syncToWooCommerce, setSyncToWooCommerce] = useState(!editingCustomer?.woocommerce_id);
 
   const validateForm = (): boolean => {
     const newErrors: {[key: string]: string} = {};
 
-    if (!formData.firstName.trim()) {
-      newErrors.firstName = 'Le prénom est requis';
+    if (!formData.first_name.trim()) {
+      newErrors.first_name = 'Le prénom est requis';
     }
-    
-    if (!formData.lastName.trim()) {
-      newErrors.lastName = 'Le nom est requis';
+
+    if (!formData.last_name.trim()) {
+      newErrors.last_name = 'Le nom est requis';
     }
-    
+
     if (!formData.email.trim()) {
       newErrors.email = 'L\'email est requis';
     } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
@@ -94,15 +69,14 @@ const CustomerForm: React.FC<CustomerFormProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!validateForm()) {
       return;
     }
-    
+
     setIsSubmitting(true);
-    
+
     try {
-      // Sauvegarder le client
       await customerService.saveCustomer(formData, syncToWooCommerce);
       onSave(formData);
     } catch (error) {
@@ -114,9 +88,9 @@ const CustomerForm: React.FC<CustomerFormProps> = ({
   };
 
   return (
-    <div className="max-w-4xl mx-auto">
+    <div className="h-screen flex flex-col overflow-hidden pb-20">
       {/* Header */}
-      <div className="mb-8">
+      <div className="flex-none p-6 bg-white border-b">
         <div className="flex items-center justify-between">
           <div>
             <button
@@ -158,184 +132,185 @@ const CustomerForm: React.FC<CustomerFormProps> = ({
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-8">
-        {/* WooCommerce Sync Option */}
-        {!editingCustomer?.wooCommerceId && (
-          <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-            <div className="flex items-center space-x-3">
-              <input
-                type="checkbox"
-                id="syncToWooCommerce"
-                checked={syncToWooCommerce}
-                onChange={(e) => setSyncToWooCommerce(e.target.checked)}
-                className="w-4 h-4 text-green-600 bg-gray-100 border-gray-300 rounded focus:ring-green-500"
-              />
-              <div>
-                <label htmlFor="syncToWooCommerce" className="text-sm font-medium text-green-900 flex items-center">
-                  <RefreshCw className="w-4 h-4 mr-2" />
-                  Synchroniser avec WooCommerce
-                </label>
-                <p className="text-xs text-green-700">
-                  Créer automatiquement ce client dans votre boutique WooCommerce
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Personal Information */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-6 flex items-center">
-            <User className="w-5 h-5 mr-2 text-blue-600" />
-            Informations personnelles
-          </h2>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Prénom *
-              </label>
-              <input
-                type="text"
-                value={formData.firstName}
-                onChange={(e) => handleInputChange('firstName', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                required
-              />
-              {errors.firstName && <p className="text-red-500 text-sm mt-1">{errors.firstName}</p>}
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Nom *
-              </label>
-              <input
-                type="text"
-                value={formData.lastName}
-                onChange={(e) => handleInputChange('lastName', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                required
-              />
-              {errors.lastName && <p className="text-red-500 text-sm mt-1">{errors.lastName}</p>}
-            </div>
-            <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Entreprise
-              </label>
-              <input
-                type="text"
-                value={formData.company || ''}
-                onChange={(e) => handleInputChange('company', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="Nom de l'entreprise"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Contact Information */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-6 flex items-center">
-            <Mail className="w-5 h-5 mr-2 text-green-600" />
-            Informations de contact
-          </h2>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Email *
-              </label>
-              <input
-                type="email"
-                value={formData.email}
-                onChange={(e) => handleInputChange('email', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                required
-              />
-              {errors.email && <p className="text-red-500 text-sm mt-1">{errors.email}</p>}
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Téléphone
-              </label>
-              <input
-                type="tel"
-                value={formData.phone || ''}
-                onChange={(e) => handleInputChange('phone', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="+212 XX XX XX XX"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Address */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-6 flex items-center">
-            <MapPin className="w-5 h-5 mr-2 text-red-600" />
-            Adresse
-          </h2>
-          
-          <div className="grid grid-cols-1 gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Adresse complète
-              </label>
-              <input
-                type="text"
-                value={formData.address || ''}
-                onChange={(e) => handleInputChange('address', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                placeholder="Numéro et nom de rue"
-              />
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Ville
-                </label>
+      {/* Scrollable Content */}
+      <div className="flex-1 overflow-auto p-6">
+        <form onSubmit={handleSubmit} className="max-w-6xl mx-auto space-y-6">
+          {/* WooCommerce Sync Option */}
+          {!editingCustomer?.woocommerce_id && (
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+              <div className="flex items-center space-x-3">
                 <input
-                  type="text"
-                  value={formData.city || ''}
-                  onChange={(e) => handleInputChange('city', e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Ville"
+                  type="checkbox"
+                  id="syncToWooCommerce"
+                  checked={syncToWooCommerce}
+                  onChange={(e) => setSyncToWooCommerce(e.target.checked)}
+                  className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"
                 />
+                <div>
+                  <label htmlFor="syncToWooCommerce" className="text-sm font-medium text-gray-900 flex items-center">
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                    Synchroniser avec WooCommerce
+                  </label>
+                  <p className="text-xs text-gray-600">
+                    Créer automatiquement ce client dans votre boutique WooCommerce
+                  </p>
+                </div>
               </div>
+            </div>
+          )}
+
+          {/* Personal Information */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-6 flex items-center">
+              <User className="w-5 h-5 mr-2 text-blue-600" />
+              Informations personnelles
+            </h2>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Code postal
+                  Prénom *
                 </label>
                 <input
                   type="text"
-                  value={formData.postalCode || ''}
-                  onChange={(e) => handleInputChange('postalCode', e.target.value)}
+                  value={formData.first_name}
+                  onChange={(e) => setFormData(prev => ({ ...prev, first_name: e.target.value }))}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Code postal"
+                  required
                 />
+                {errors.first_name && <p className="text-red-500 text-sm mt-1">{errors.first_name}</p>}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Pays
+                  Nom *
                 </label>
                 <input
                   type="text"
-                  value={formData.country || 'Maroc'}
-                  onChange={(e) => handleInputChange('country', e.target.value)}
+                  value={formData.last_name}
+                  onChange={(e) => setFormData(prev => ({ ...prev, last_name: e.target.value }))}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  required
+                />
+                {errors.last_name && <p className="text-red-500 text-sm mt-1">{errors.last_name}</p>}
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Entreprise
+                </label>
+                <input
+                  type="text"
+                  value={formData.company || ''}
+                  onChange={(e) => setFormData(prev => ({ ...prev, company: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Nom de l'entreprise"
                 />
               </div>
             </div>
           </div>
-        </div>
 
-        {/* Fiscal Information */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-6 flex items-center">
-            <Hash className="w-5 h-5 mr-2 text-purple-600" />
-            Informations fiscales
-          </h2>
-          
-          <div className="grid grid-cols-1 gap-6">
+          {/* Contact Information */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-6 flex items-center">
+              <Mail className="w-5 h-5 mr-2 text-green-600" />
+              Informations de contact
+            </h2>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Email *
+                </label>
+                <input
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  required
+                />
+                {errors.email && <p className="text-red-500 text-sm mt-1">{errors.email}</p>}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Téléphone
+                </label>
+                <input
+                  type="tel"
+                  value={formData.phone || ''}
+                  onChange={(e) => setFormData(prev => ({ ...prev, phone: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="+212 XX XX XX XX"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Address */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-6 flex items-center">
+              <MapPin className="w-5 h-5 mr-2 text-red-600" />
+              Adresse
+            </h2>
+
+            <div className="grid grid-cols-1 gap-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Adresse complète
+                </label>
+                <textarea
+                  value={formData.address || ''}
+                  onChange={(e) => setFormData(prev => ({ ...prev, address: e.target.value }))}
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Numéro et nom de rue"
+                />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Ville
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.city || ''}
+                    onChange={(e) => setFormData(prev => ({ ...prev, city: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="Ville"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Code postal
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.postal_code || ''}
+                    onChange={(e) => setFormData(prev => ({ ...prev, postal_code: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="Code postal"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Pays
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.country || 'Maroc'}
+                    onChange={(e) => setFormData(prev => ({ ...prev, country: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Fiscal Information */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-6 flex items-center">
+              <Hash className="w-5 h-5 mr-2 text-purple-600" />
+              Informations fiscales
+            </h2>
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 ICE (Identifiant Commun de l'Entreprise)
@@ -343,7 +318,7 @@ const CustomerForm: React.FC<CustomerFormProps> = ({
               <input
                 type="text"
                 value={formData.ice || ''}
-                onChange={(e) => handleInputChange('ice', e.target.value)}
+                onChange={(e) => setFormData(prev => ({ ...prev, ice: e.target.value }))}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 placeholder="000123456789012"
               />
@@ -352,36 +327,39 @@ const CustomerForm: React.FC<CustomerFormProps> = ({
               </p>
             </div>
           </div>
-        </div>
 
-        {/* Notes */}
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Notes</h2>
-          <textarea
-            value={formData.notes || ''}
-            onChange={(e) => handleInputChange('notes', e.target.value)}
-            rows={4}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            placeholder="Notes additionnelles sur ce client..."
-          />
-        </div>
+          {/* Notes */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-6 flex items-center">
+              <User className="w-5 h-5 mr-2 text-gray-600" />
+              Notes
+            </h2>
+            <textarea
+              value={formData.notes || ''}
+              onChange={(e) => setFormData(prev => ({ ...prev, notes: e.target.value }))}
+              rows={4}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              placeholder="Notes additionnelles sur ce client..."
+            />
+          </div>
 
-        {/* WooCommerce Info */}
-        {formData.wooCommerceId && (
-          <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-            <div className="flex items-center space-x-2">
-              <Building className="w-5 h-5 text-green-600" />
-              <div>
-                <p className="font-medium text-green-900">Client synchronisé avec WooCommerce</p>
-                <p className="text-sm text-green-700">ID WooCommerce: {formData.wooCommerceId}</p>
-                <p className="text-xs text-green-600 mt-1">
-                  Les informations de base sont synchronisées automatiquement depuis WooCommerce
-                </p>
+          {/* WooCommerce Info */}
+          {formData.woocommerce_id && (
+            <div className="bg-white rounded-lg shadow-sm border border-blue-200 p-6">
+              <div className="flex items-center space-x-2">
+                <Building className="w-5 h-5 text-blue-600" />
+                <div>
+                  <p className="font-medium text-gray-900">Client synchronisé avec WooCommerce</p>
+                  <p className="text-sm text-gray-600">ID WooCommerce: {formData.woocommerce_id}</p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Les informations de base sont synchronisées automatiquement depuis WooCommerce
+                  </p>
+                </div>
               </div>
             </div>
-          </div>
-        )}
-      </form>
+          )}
+        </form>
+      </div>
     </div>
   );
 };

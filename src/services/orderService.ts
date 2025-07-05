@@ -81,7 +81,11 @@ class OrderService {
     };
   }
 
-  async getOrders(page: number = 1, limit: number = 20): Promise<{
+  async getOrders(page: number = 1, limit: number = 20, filters?: {
+    status?: string;
+    after?: string;
+    before?: string;
+  }): Promise<{
     data: WooCommerceOrder[];
     count: number | null;
   }> {
@@ -91,9 +95,22 @@ class OrderService {
       const from = (page - 1) * limit;
       const to = from + limit - 1;
 
-      const { data, error, count } = await supabase
+      let query = supabase
         .from(this.TABLE_NAME)
-        .select('*', { count: 'exact' })
+        .select('*', { count: 'exact' });
+
+      // Apply filters if provided
+      if (filters?.status) {
+        query = query.eq('status', filters.status);
+      }
+      if (filters?.after) {
+        query = query.gte('date_created', filters.after);
+      }
+      if (filters?.before) {
+        query = query.lte('date_created', filters.before);
+      }
+
+      const { data, error, count } = await query
         .order('date_created', { ascending: false })
         .range(from, to);
 

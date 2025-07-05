@@ -986,7 +986,11 @@ class WooCommerceService {
     this.syncCallbacks.push(callback);
   }
 
-  private async performSync(): Promise<void> {
+  getLastSyncTime(): string | null {
+    return this.lastSyncTime;
+  }
+
+  async performSync(): Promise<void> {
     try {
       const params: any = {
         per_page: 100,
@@ -1017,14 +1021,6 @@ class WooCommerceService {
       console.error('WooCommerce sync failed:', error);
       throw error;
     }
-  }
-
-  getLastSyncTime(): string | null {
-    return this.lastSyncTime;
-  }
-
-  async triggerManualSync(): Promise<void> {
-    await this.performSync();
   }
 
   getAvailableTaxRates(): number[] {
