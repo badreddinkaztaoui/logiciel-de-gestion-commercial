@@ -115,10 +115,10 @@ export interface Quote {
 export interface Invoice {
   id: string;
   number: string;
-  orderId?: number;
-  quoteId?: string; // ID du devis d'origine
+  orderId?: number;  // woocommerce_order_id
+  customerId?: string;  // customer_id (uuid)
   date: string;
-  dueDate: string;
+  dueDate: string;  // due_date
   status: 'draft' | 'sent' | 'paid' | 'overdue' | 'cancelled';
   customer: {
     name: string;
@@ -126,7 +126,7 @@ export interface Invoice {
     company: string;
     address: string;
     city: string;
-    postalCode: string;
+    postal_code: string;  // Changed from postalCode
     country: string;
   };
   items: Array<{
@@ -141,11 +141,17 @@ export interface Invoice {
     sku?: string;
   }>;
   subtotal: number;
-  tax: number;
+  tax: number;  // tax_amount in DB
+  taxRate: number;  // tax_rate in DB
   total: number;
+  currency: string;
+  paymentMethod?: string;  // payment_method
+  paymentDate?: string;  // payment_date
   notes?: string;
-  woocommerceStatus?: string; // WooCommerce order status
-  lastSyncedAt?: string; // Last sync timestamp with WooCommerce
+  woocommerceStatus?: string;
+  lastSyncedAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface DeliveryNote {

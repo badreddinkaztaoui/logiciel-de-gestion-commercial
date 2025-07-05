@@ -4,7 +4,6 @@ import {
   Download,
   CheckCircle,
   Printer,
-  Save
 } from 'lucide-react';
 import { SalesJournal } from '../types';
 import { formatCurrency, numberToFrenchWords } from '../utils/formatters';

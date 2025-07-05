@@ -37,13 +37,15 @@ const InvoiceForm: React.FC = () => {
       company: '',
       address: '',
       city: '',
-      postalCode: '',
+      postal_code: '',
       country: 'Maroc'
     },
     items: [],
     subtotal: 0,
     tax: 0,
+    taxRate: 20,
     total: 0,
+    currency: 'MAD',
     notes: ''
   });
 
@@ -125,21 +127,15 @@ const InvoiceForm: React.FC = () => {
         company: '',
         address: '',
         city: '',
-        postalCode: '',
+        postal_code: '',
         country: 'Maroc'
       },
-      items: [{
-        id: crypto.randomUUID(),
-        description: '',
-        quantity: 1,
-        unitPrice: 0,
-        total: 0,
-        taxRate: 20,
-        taxAmount: 0
-      }],
+      items: [],
       subtotal: 0,
       tax: 0,
+      taxRate: 20,
       total: 0,
+      currency: 'MAD',
       notes: ''
     };
 
@@ -253,7 +249,7 @@ const InvoiceForm: React.FC = () => {
       company: billing.company || '',
       address: `${billing.address_1 || ''}${billing.address_2 ? ` ${billing.address_2}` : ''}`,
       city: billing.city || '',
-      postalCode: billing.postcode || '',
+      postal_code: billing.postcode || '',
       country: billing.country || 'MA'
     };
   };
@@ -293,10 +289,10 @@ const InvoiceForm: React.FC = () => {
       newErrors.customerName = 'Le nom du client est requis';
     }
 
-    if (!formData.items?.length) {
-      newErrors.items = 'Au moins un article est requis';
-    } else {
-      formData.items.forEach((item, index) => {
+    // Only validate items if they exist
+    const items = formData.items || [];
+    if (items.length > 0) {
+      items.forEach((item, index) => {
         if (!item.description.trim()) {
           newErrors[`item_${index}_description`] = 'Description requise';
         }
@@ -339,15 +335,21 @@ const InvoiceForm: React.FC = () => {
 
     const customer = customers.find(c => c.id === customerId);
     if (customer) {
+      const fullName = [
+        customer.first_name || '',
+        customer.last_name || ''
+      ].filter(Boolean).join(' ');
+
       setFormData(prev => ({
         ...prev,
+        customerId: customer.id,
         customer: {
-          name: `${customer.firstName} ${customer.lastName}`.trim(),
-          email: customer.email,
+          name: fullName || 'Client',
+          email: customer.email || '',
           company: customer.company || '-',
           address: customer.address || '',
           city: customer.city || '',
-          postalCode: customer.postalCode || '',
+          postal_code: customer.postal_code || '',
           country: customer.country || 'MA'
         }
       }));
@@ -362,25 +364,27 @@ const InvoiceForm: React.FC = () => {
     };
 
     if (field === 'quantity' || field === 'unitPrice') {
-      const newTotalTTC = round2(newItems[index].quantity * newItems[index].unitPrice);
-      newItems[index].total = newTotalTTC;
+      const item = newItems[index];
+      const totalTTC = round2(item.quantity * item.unitPrice);
+      const taxRate100 = item.taxRate / 100;
+      const totalHT = round2(totalTTC / (1 + taxRate100));
+      const taxAmount = round2(totalHT * taxRate100);
 
-      const taxRate = (newItems[index].taxRate || 20) / 100;
-      const totalHT = round2(newTotalTTC / (1 + taxRate));
-      newItems[index].taxAmount = round2(totalHT * taxRate);
+      newItems[index] = {
+        ...item,
+        total: totalTTC,
+        taxAmount: taxAmount
+      };
     }
 
-    if (field === 'taxRate') {
-      const totalTTC = newItems[index].total;
-      const taxRate = parseFloat(value) / 100;
-      const totalHT = round2(totalTTC / (1 + taxRate));
-      newItems[index].taxAmount = round2(totalHT * taxRate);
-    }
-
-    setFormData(prev => ({
-      ...prev,
-      items: newItems
-    }));
+    setFormData(prev => {
+      const totals = calculateTotalsFromItems(newItems);
+      return {
+        ...prev,
+        items: newItems,
+        ...totals
+      };
+    });
   };
 
   const handleAddItem = () => {
@@ -402,10 +406,16 @@ const InvoiceForm: React.FC = () => {
   };
 
   const handleRemoveItem = (index: number) => {
-    setFormData(prev => ({
-      ...prev,
-      items: prev.items?.filter((_, i) => i !== index) || []
-    }));
+    setFormData(prev => {
+      const updatedItems = prev.items?.filter((_, i) => i !== index) || [];
+      const totals = calculateTotalsFromItems(updatedItems);
+
+      return {
+        ...prev,
+        items: updatedItems,
+        ...totals
+      };
+    });
   };
 
   const handleProductSelect = (product: ProductWithQuantity) => {
@@ -426,10 +436,16 @@ const InvoiceForm: React.FC = () => {
       taxAmount: taxAmount
     };
 
-    setFormData(prev => ({
-      ...prev,
-      items: [...(prev.items || []), newItem]
-    }));
+    setFormData(prev => {
+      const updatedItems = [...(prev.items || []), newItem];
+      const totals = calculateTotalsFromItems(updatedItems);
+
+      return {
+        ...prev,
+        items: updatedItems,
+        ...totals
+      };
+    });
   };
 
   if (loading || isLoadingProducts) {

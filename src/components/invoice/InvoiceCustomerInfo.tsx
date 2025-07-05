@@ -9,7 +9,7 @@ interface InvoiceCustomerInfoProps {
     company: string;
     address: string;
     city: string;
-    postalCode: string;
+    postal_code: string;
     country: string;
   };
   customers: Customer[];
@@ -36,8 +36,8 @@ const InvoiceCustomerInfo: React.FC<InvoiceCustomerInfoProps> = ({
     if (!customer || !customerSearchTerm) return false;
     const searchLower = customerSearchTerm.toLowerCase();
     return (
-      (customer.firstName && customer.firstName.toLowerCase().includes(searchLower)) ||
-      (customer.lastName && customer.lastName.toLowerCase().includes(searchLower)) ||
+      (customer.first_name && customer.first_name.toLowerCase().includes(searchLower)) ||
+      (customer.last_name && customer.last_name.toLowerCase().includes(searchLower)) ||
       (customer.email && customer.email.toLowerCase().includes(searchLower)) ||
       (customer.company && customer.company.toLowerCase().includes(searchLower))
     );
@@ -76,7 +76,7 @@ const InvoiceCustomerInfo: React.FC<InvoiceCustomerInfoProps> = ({
                   className="w-full px-4 py-2 text-left hover:bg-gray-50 border-b border-gray-100 last:border-b-0"
                 >
                   <p className="text-sm font-medium text-gray-900">
-                    {customer.firstName} {customer.lastName}
+                    {customer.first_name} {customer.last_name}
                   </p>
                   {customer.email && (
                     <p className="text-xs text-gray-500">{customer.email}</p>
@@ -160,8 +160,8 @@ const InvoiceCustomerInfo: React.FC<InvoiceCustomerInfoProps> = ({
           </label>
           <input
             type="text"
-            value={customer.postalCode}
-            onChange={(e) => onCustomerChange('postalCode', e.target.value)}
+            value={customer.postal_code}
+            onChange={(e) => onCustomerChange('postal_code', e.target.value)}
             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             placeholder="Code postal"
           />
