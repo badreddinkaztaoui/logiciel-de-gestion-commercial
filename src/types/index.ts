@@ -2,24 +2,14 @@ export interface WooCommerceLineItem {
   id: number;
   name: string;
   product_id: number;
-  variation_id?: number;
   quantity: number;
-  tax_class: string;
-  subtotal: string;
-  subtotal_tax: string;
+  price: string;
+  tax_class?: string;
+  sku?: string;
   total: string;
   total_tax: string;
-  sku: string;
-  price: number;
-  taxes: {
-    id: number;
-    rate_code: string;
-    rate_id: number;
-    label: string;
-    compound: boolean;
-    tax_total: string;
-    shipping_tax_total: string;
-  }[];
+  subtotal: string;
+  subtotal_tax: string;
 }
 
 export interface WooCommerceOrder {
@@ -57,14 +47,7 @@ export interface WooCommerceOrder {
     postcode: string;
     country: string;
   };
-  line_items?: Array<{
-    id: number;
-    name: string;
-    product_id: number;
-    quantity: number;
-    price: string;
-    tax_class?: string;
-  }>;
+  line_items?: WooCommerceLineItem[];
   tax_lines: {
     id: number;
     rate_code: string;

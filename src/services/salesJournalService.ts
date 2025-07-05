@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase';
-import { SalesJournal, SalesJournalLine, WooCommerceOrder, WooCommerceLineItem } from '../types';
+import { SalesJournal, SalesJournalLine, WooCommerceOrder } from '../types';
 import { orderService } from './orderService';
 import { documentNumberingService } from './documentNumberingService';
 
@@ -220,49 +220,53 @@ class SalesJournalService {
       ordersForDate.forEach((order: WooCommerceOrder) => {
         orderIds.push(order.id);
 
-        const customerName = `${order.billing.first_name} ${order.billing.last_name}`.trim();
+        const customerName = order.billing ?
+          `${order.billing.first_name || ''} ${order.billing.last_name || ''}`.trim() :
+          'Unknown Customer';
 
-        order.line_items.forEach((lineItem: WooCommerceLineItem) => {
-          const itemTotalTTC = parseFloat(lineItem.total || '0') + parseFloat(lineItem.total_tax || '0');
-          const itemTax = parseFloat(lineItem.total_tax || '0');
-          const itemTotalHT = itemTotalTTC - itemTax;
-          const unitPriceTTC = this.round2(itemTotalTTC / (lineItem.quantity || 1));
-          const unitPriceHT = this.round2(itemTotalHT / (lineItem.quantity || 1));
+        if (order.line_items) {
+          order.line_items.forEach((lineItem) => {
+            const itemTotalTTC = parseFloat(lineItem.total || '0') + parseFloat(lineItem.total_tax || '0');
+            const itemTax = parseFloat(lineItem.total_tax || '0');
+            const itemTotalHT = itemTotalTTC - itemTax;
+            const unitPriceTTC = this.round2(itemTotalTTC / (lineItem.quantity || 1));
+            const unitPriceHT = this.round2(itemTotalHT / (lineItem.quantity || 1));
 
-          let taxRate = 20;
-          if (itemTotalHT > 0 && itemTax >= 0) {
-            if (itemTax === 0) {
-              taxRate = 0;
-            } else {
-              const calculatedRate = this.round2((itemTax / itemTotalHT) * 100);
-              const validRates = [0, 7, 10, 20];
-              taxRate = validRates.reduce((prev, curr) =>
-                Math.abs(curr - calculatedRate) < Math.abs(prev - calculatedRate) ? curr : prev
-              );
+            let taxRate = 20;
+            if (itemTotalHT > 0 && itemTax >= 0) {
+              if (itemTax === 0) {
+                taxRate = 0;
+              } else {
+                const calculatedRate = this.round2((itemTax / itemTotalHT) * 100);
+                const validRates = [0, 7, 10, 20];
+                taxRate = validRates.reduce((prev, curr) =>
+                  Math.abs(curr - calculatedRate) < Math.abs(prev - calculatedRate) ? curr : prev
+                );
+              }
             }
-          }
 
-          const journalLine: SalesJournalLine = {
-            id: `${order.id}-${lineItem.id}`,
-            orderId: order.id,
-            orderNumber: order.number || order.id.toString(),
-            lineItemId: lineItem.id,
-            productId: lineItem.product_id,
-            sku: lineItem.sku || `PROD-${lineItem.product_id}`,
-            productName: lineItem.name,
-            quantity: lineItem.quantity,
-            unitPriceTTC: unitPriceTTC,
-            totalTTC: itemTotalTTC,
-            taxRate: taxRate,
-            unitPriceHT: unitPriceHT,
-            totalHT: itemTotalHT,
-            taxAmount: itemTax,
-            customerName: customerName,
-            customerEmail: order.billing.email
-          };
+            const journalLine: SalesJournalLine = {
+              id: `${order.id}-${lineItem.id}`,
+              orderId: order.id,
+              orderNumber: order.number || order.id.toString(),
+              lineItemId: lineItem.id,
+              productId: lineItem.product_id,
+              sku: lineItem.sku || `PROD-${lineItem.product_id}`,
+              productName: lineItem.name,
+              quantity: lineItem.quantity,
+              unitPriceTTC: unitPriceTTC,
+              totalTTC: itemTotalTTC,
+              taxRate: taxRate,
+              unitPriceHT: unitPriceHT,
+              totalHT: itemTotalHT,
+              taxAmount: itemTax,
+              customerName: customerName,
+              customerEmail: order.billing?.email
+            };
 
-          journalLines.push(journalLine);
-        });
+            journalLines.push(journalLine);
+          });
+        }
       });
 
       const totalHT = this.round2(journalLines.reduce((sum, line) => sum + line.totalHT, 0));
@@ -435,6 +439,34 @@ class SalesJournalService {
     } catch (error) {
       console.error('Error exporting journal for accounting:', error);
       return null;
+    }
+  }
+
+  async updateJournalForOrder(orderId: number): Promise<void> {
+    try {
+      // Find journals containing this order
+      const { data: journals, error } = await supabase
+        .from(this.TABLE_NAME)
+        .select('*')
+        .contains('ordersIncluded', [orderId]);
+
+      if (error) {
+        console.error('Error finding journals for order:', error);
+        return;
+      }
+
+      // Regenerate each affected journal
+      for (const journal of journals) {
+        const date = new Date(journal.date).toLocaleDateString('fr-FR');
+        const { journal: updatedJournal } = await this.generateSalesJournal(date);
+
+        if (updatedJournal) {
+          await this.saveSalesJournal(updatedJournal);
+        }
+      }
+    } catch (error) {
+      console.error('Error updating journal for order:', error);
+      throw error;
     }
   }
 }

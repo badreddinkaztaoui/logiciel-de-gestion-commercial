@@ -1,4 +1,6 @@
 import { orderService } from './orderService';
+import { invoiceService } from './invoiceService';
+import { salesJournalService } from './salesJournalService';
 
 export interface WooCommerceProduct {
   id: number;
@@ -1010,6 +1012,16 @@ class WooCommerceService {
 
       if (orders && orders.length > 0) {
         const { mergedOrders, newOrdersCount } = await orderService.mergeOrders(orders);
+
+        // Update invoices and sales journals for synced orders
+        for (const order of orders) {
+          try {
+            await invoiceService.syncWithWooCommerce(order.id, order.status);
+            await salesJournalService.updateJournalForOrder(order.id);
+          } catch (error) {
+            console.error(`Error syncing documents for order ${order.id}:`, error);
+          }
+        }
 
         this.syncCallbacks.forEach(callback => {
           callback(mergedOrders, newOrdersCount > 0);

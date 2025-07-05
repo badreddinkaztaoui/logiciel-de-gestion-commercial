@@ -10,20 +10,30 @@ import {
   Mail,
   Search,
   AlertTriangle,
+  CheckCircle
 } from 'lucide-react';
-import { Quote, WooCommerceOrder, Customer } from '../types';
+import { Quote, WooCommerceOrder, Customer as BaseCustomer } from '../types';
 import { quoteService } from '../services/quoteService';
 import { customerService } from '../services/customerService';
 import { WooCommerceProduct } from '../services/woocommerce';
 import { formatCurrency } from '../utils/formatters';
 import ProductSearch from './ProductSearch';
 
+interface Customer extends BaseCustomer {
+  name: string;
+  email: string;
+  company?: string;
+  address?: string;
+  city?: string;
+}
+
 interface ProductWithQuantity extends WooCommerceProduct {
   quantity: number;
   taxRate: number;
 }
 
-interface QuoteItem {
+interface ExtendedQuoteItem {
+  id: string;
   description: string;
   quantity: number;
   unitPrice: number;
@@ -33,10 +43,14 @@ interface QuoteItem {
   taxRate: number;
 }
 
+type ExtendedQuote = Omit<Quote, 'items'> & {
+  items: ExtendedQuoteItem[];
+};
+
 interface QuoteFormProps {
-  editingQuote?: Quote | null;
+  editingQuote?: ExtendedQuote | null;
   sourceOrder?: WooCommerceOrder | null;
-  onSave: (quote: Quote) => void;
+  onSave: (quote: ExtendedQuote) => void;
   onCancel: () => void;
 }
 
@@ -46,7 +60,7 @@ const QuoteForm: React.FC<QuoteFormProps> = ({
   onSave,
   onCancel
 }) => {
-  const [formData, setFormData] = useState<Partial<Quote>>({
+  const [formData, setFormData] = useState<Partial<ExtendedQuote>>({
     number: '',
     date: new Date().toISOString().split('T')[0],
     validUntil: '',
@@ -76,11 +90,11 @@ const QuoteForm: React.FC<QuoteFormProps> = ({
 
   const loadData = async () => {
     try {
-        const savedCustomers = await customerService.getCustomers();
-        setCustomers(savedCustomers);
+      const savedCustomers = await customerService.getCustomers() as Customer[];
+      setCustomers(savedCustomers);
 
-        if (editingQuote) {
-          setFormData(editingQuote);
+      if (editingQuote) {
+        setFormData(editingQuote);
         if (editingQuote.customer) {
           const customer = savedCustomers.find(c => c.email === editingQuote.customer.email);
           setSelectedCustomer(customer || null);
@@ -98,13 +112,14 @@ const QuoteForm: React.FC<QuoteFormProps> = ({
       const expiryDate = new Date();
       expiryDate.setDate(expiryDate.getDate() + 30);
 
-      const items = order.line_items.map(item => ({
+      const items = (order.line_items || []).map(item => ({
+        id: crypto.randomUUID(),
         description: item.name,
         quantity: Number(item.quantity),
         unitPrice: Number(item.price),
         total: Number(item.quantity) * Number(item.price),
-        sku: '',
-        product_id: undefined,
+        sku: (item as any).sku || '',
+        product_id: item.product_id,
         taxRate: 20 // Default tax rate for order items
       }));
 
@@ -112,16 +127,18 @@ const QuoteForm: React.FC<QuoteFormProps> = ({
       const tax = subtotal * 0.2;
       const total = subtotal + tax;
 
+      const billing = order.billing || {};
+
       setFormData({
         date: new Date().toISOString().split('T')[0],
         validUntil: expiryDate.toISOString().split('T')[0],
         status: 'draft',
         customer: {
-          name: `${order.billing.first_name} ${order.billing.last_name}`,
-          email: order.billing.email,
-          company: order.billing.company || '',
-          address: order.billing.address_1,
-          city: order.billing.city
+          name: `${billing.first_name || ''} ${billing.last_name || ''}`.trim(),
+          email: billing.email || '',
+          company: billing.company || '',
+          address: billing.address_1 || '',
+          city: billing.city || ''
         },
         items,
         subtotal,
@@ -149,7 +166,7 @@ const QuoteForm: React.FC<QuoteFormProps> = ({
   };
 
   const handleItemChange = (index: number, field: string, value: any) => {
-    const newItems = [...(formData.items || [])] as QuoteItem[];
+    const newItems = [...(formData.items || [])] as ExtendedQuoteItem[];
     newItems[index] = {
       ...newItems[index],
       [field]: value
@@ -175,30 +192,26 @@ const QuoteForm: React.FC<QuoteFormProps> = ({
   };
 
   const addItem = () => {
-    setFormData(prev => {
-      const items = [
-        ...(prev.items || []),
-        {
-          description: '',
-          quantity: 1,
-          unitPrice: 0,
-          total: 0,
-          sku: '',
-          product_id: undefined,
-          taxRate: 20
-        }
-      ];
+    const newItem: ExtendedQuoteItem = {
+      id: crypto.randomUUID(),
+      description: '',
+      quantity: 1,
+      unitPrice: 0,
+      total: 0,
+      sku: '',
+      product_id: '',
+      taxRate: 20
+    };
 
-      return {
-        ...prev,
-        items
-      };
-    });
+    setFormData(prev => ({
+      ...prev,
+      items: [...(prev.items || []), newItem]
+    }));
   };
 
   const removeItem = (index: number) => {
     setFormData(prev => {
-      const items = (prev.items?.filter((_, i) => i !== index) || []) as QuoteItem[];
+      const items = (prev.items?.filter((_, i) => i !== index) || []) as ExtendedQuoteItem[];
       const subtotal = items.reduce((sum, item) => sum + item.total, 0);
       const tax = items.reduce((sum, item) => sum + (item.total * (item.taxRate / 100)), 0);
       const total = subtotal + tax;
@@ -216,7 +229,8 @@ const QuoteForm: React.FC<QuoteFormProps> = ({
   const handleProductSelect = (product: ProductWithQuantity) => {
     const priceHT = parseFloat(product.price) / (1 + product.taxRate / 100);
 
-    const newItem: QuoteItem = {
+    const newItem: ExtendedQuoteItem = {
+      id: crypto.randomUUID(),
       description: product.name,
       quantity: product.quantity,
       unitPrice: priceHT,
@@ -262,11 +276,37 @@ const QuoteForm: React.FC<QuoteFormProps> = ({
         return;
       }
 
-      const savedQuote = editingQuote
-        ? await quoteService.updateQuote(editingQuote.id, formData)
-        : await quoteService.createQuote(formData);
+      // Only include the required properties for the API
+      const quoteData = {
+        ...formData,
+        items: formData.items?.map(item => ({
+          description: item.description,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          total: item.total
+        }))
+      };
 
-      onSave(savedQuote);
+      const savedQuote = editingQuote
+        ? await quoteService.updateQuote(editingQuote.id, quoteData)
+        : await quoteService.createQuote(quoteData);
+
+      // Transform the saved quote back to ExtendedQuote format
+      const extendedQuote: ExtendedQuote = {
+        ...savedQuote,
+        items: savedQuote.items.map(item => ({
+          id: crypto.randomUUID(),
+          description: item.description,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          total: item.total,
+          sku: '',
+          product_id: '',
+          taxRate: 20
+        }))
+      };
+
+      onSave(extendedQuote);
     } catch (error) {
       console.error('Error saving quote:', error);
       setErrors({ submit: 'Une erreur est survenue lors de l\'enregistrement du devis' });
@@ -278,7 +318,7 @@ const QuoteForm: React.FC<QuoteFormProps> = ({
   const renderCustomerDetails = () => {
     if (!formData.customer) return null;
 
-  return (
+    return (
       <div className="bg-gray-50 p-4 rounded-lg">
         <h3 className="text-lg font-medium text-gray-900 mb-4">Détails du client</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -313,261 +353,259 @@ const QuoteForm: React.FC<QuoteFormProps> = ({
   };
 
   return (
-    <div className="bg-white p-6 rounded-lg shadow">
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-bold text-gray-900">
-          {editingQuote ? 'Modifier le devis' : 'Nouveau devis'}
-        </h2>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="inline-flex items-center text-gray-600 hover:text-gray-900"
-        >
-          <ArrowLeft className="w-5 h-5 mr-1" />
-          Retour
-        </button>
-            </div>
-
-      <form onSubmit={handleSubmit} className="space-y-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-            <label className="block text-sm font-medium text-gray-700">Date</label>
-              <input
-                type="date"
-                value={formData.date}
-              onChange={e => setFormData(prev => ({ ...prev, date: e.target.value }))}
-              className="mt-1 block w-full rounded-md border border-gray-300 bg-white py-2 pl-3 pr-10 text-base focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 sm:text-sm"
-              />
-            {errors.date && <p className="mt-1 text-sm text-red-600">{errors.date}</p>}
-            </div>
-            <div>
-            <label className="block text-sm font-medium text-gray-700">Date d'expiration</label>
-              <input
-                type="date"
-                value={formData.validUntil}
-              onChange={e => setFormData(prev => ({ ...prev, validUntil: e.target.value }))}
-              className="mt-1 block w-full rounded-md border border-gray-300 bg-white py-2 pl-3 pr-10 text-base focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 sm:text-sm"
-            />
-            {errors.validUntil && <p className="mt-1 text-sm text-red-600">{errors.validUntil}</p>}
-            </div>
-            <div>
-            <label className="block text-sm font-medium text-gray-700">Statut</label>
-              <select
-                value={formData.status}
-              onChange={e => setFormData(prev => ({ ...prev, status: e.target.value as Quote['status'] }))}
-              className="mt-1 block w-full rounded-lg border border-gray-300 bg-white py-2 pl-3 pr-10 text-base focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 sm:text-sm"
+    <div className="h-screen flex flex-col overflow-hidden pb-20">
+      {/* Header */}
+      <div className="flex-none p-6 bg-white border-b">
+        <div className="flex items-center justify-between">
+          <div>
+            <button
+              onClick={onCancel}
+              className="flex items-center space-x-2 text-gray-600 hover:text-gray-900 mb-4 transition-colors"
             >
-              <option value="draft" className="py-2">Brouillon</option>
-              <option value="sent" className="py-2">Envoyé</option>
-              <option value="accepted" className="py-2">Accepté</option>
-              <option value="rejected" className="py-2">Rejeté</option>
-              <option value="expired" className="py-2">Expiré</option>
-              </select>
+              <ArrowLeft className="w-4 h-4" />
+              <span>Retour aux devis</span>
+            </button>
+            <h1 className="text-3xl font-bold text-gray-900">
+              {editingQuote ? `Modifier le devis ${editingQuote.number}` : 'Nouveau devis'}
+            </h1>
+            {sourceOrder && (
+              <p className="text-gray-600 mt-1">
+                À partir de la commande #{sourceOrder.number}
+              </p>
+            )}
+          </div>
+
+          <div className="flex items-center space-x-3">
+            <button
+              onClick={onCancel}
+              className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              Annuler
+            </button>
+            <button
+              onClick={handleSubmit}
+              disabled={isSubmitting}
+              className="flex items-center space-x-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+            >
+              {isSubmitting ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <span>Sauvegarde...</span>
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4" />
+                  <span>Sauvegarder</span>
+                </>
+              )}
+            </button>
           </div>
         </div>
+      </div>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Client</label>
-            <div className="relative">
-            <select
-              value={selectedCustomer?.id || ''}
-              onChange={e => {
-                const customer = customers.find(c => c.id === e.target.value);
-                if (customer) handleCustomerSelect(customer);
-              }}
-              className="block w-full appearance-none rounded-lg border border-gray-300 bg-white py-2 pl-3 pr-10 text-base focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 sm:text-sm"
-            >
-              <option value="" className="text-gray-500">Sélectionner un client</option>
-              {customers.map(customer => (
-                <option key={customer.id} value={customer.id} className="py-2">
-                  {customer.name} {customer.company ? `(${customer.company})` : ''}
-                </option>
-              ))}
-            </select>
-            <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500">
-              <svg className="h-4 w-4 fill-current" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
-                <path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/>
-              </svg>
-            </div>
-          </div>
-          {errors.customer && <p className="mt-1 text-sm text-red-600">{errors.customer}</p>}
-        </div>
-
-        {renderCustomerDetails()}
-
-        <div>
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-medium text-gray-900">Articles</h3>
-            <div className="space-x-2">
-              <button
-                type="button"
-                onClick={() => setShowProductSearch(true)}
-                className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-              >
-                <Search className="w-4 h-4 mr-2" />
-                Rechercher un produit
-              </button>
-              <button
-                type="button"
-                onClick={addItem}
-                className="inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-              >
-                <Plus className="w-4 h-4 mr-2" />
-                Ajouter un article
-              </button>
+      {/* Scrollable Content */}
+      <div className="flex-1 overflow-auto p-6">
+        <form onSubmit={handleSubmit} className="max-w-7xl mx-auto space-y-6">
+          {/* Basic Information */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-6">Informations générales</h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Date</label>
+                <input
+                  type="date"
+                  value={formData.date}
+                  onChange={e => setFormData(prev => ({ ...prev, date: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  required
+                />
+                {errors.date && <p className="mt-1 text-sm text-red-600">{errors.date}</p>}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Date d'expiration</label>
+                <input
+                  type="date"
+                  value={formData.validUntil}
+                  onChange={e => setFormData(prev => ({ ...prev, validUntil: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  required
+                />
+                {errors.validUntil && <p className="mt-1 text-sm text-red-600">{errors.validUntil}</p>}
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Statut</label>
+                <select
+                  value={formData.status}
+                  onChange={e => setFormData(prev => ({ ...prev, status: e.target.value as Quote['status'] }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="draft">Brouillon</option>
+                  <option value="sent">Envoyé</option>
+                  <option value="accepted">Accepté</option>
+                  <option value="rejected">Rejeté</option>
+                  <option value="expired">Expiré</option>
+                </select>
+              </div>
             </div>
           </div>
 
-          {errors.items && <p className="mt-1 text-sm text-red-600 mb-4">{errors.items}</p>}
+          {/* Customer Selection */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-6">Client</h2>
+            <div className="space-y-4">
+              <div>
+                <select
+                  value={selectedCustomer?.id || ''}
+                  onChange={e => {
+                    const customer = customers.find(c => c.id === e.target.value);
+                    if (customer) handleCustomerSelect(customer);
+                  }}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="">Sélectionner un client</option>
+                  {customers.map(customer => (
+                    <option key={customer.id} value={customer.id}>
+                      {customer.name} {customer.company ? `(${customer.company})` : ''}
+                    </option>
+                  ))}
+                </select>
+                {errors.customer && <p className="mt-1 text-sm text-red-600">{errors.customer}</p>}
+              </div>
+              {renderCustomerDetails()}
+            </div>
+          </div>
 
-          <div className="bg-white shadow-sm rounded-lg overflow-hidden">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Description
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Quantité
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Prix unitaire
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Total
-                  </th>
-                  <th scope="col" className="relative px-6 py-3">
-                    <span className="sr-only">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {formData.items?.map((item, index) => (
-                  <tr key={index}>
-                    <td className="px-6 py-4">
-                      <input
-                        type="text"
-                        value={item.description}
-                        onChange={e => handleItemChange(index, 'description', e.target.value)}
-                        className="block w-full border-0 p-0 text-gray-900 placeholder-gray-500 focus:ring-0 sm:text-sm"
-                        placeholder="Description de l'article"
-                      />
-                    </td>
-                    <td className="px-6 py-4">
-                      <input
-                        type="number"
-                        min="1"
-                        value={item.quantity}
-                        onChange={e => handleItemChange(index, 'quantity', parseInt(e.target.value))}
-                        className="block w-20 border-0 p-0 text-gray-900 placeholder-gray-500 focus:ring-0 sm:text-sm"
-                      />
-                    </td>
-                    <td className="px-6 py-4">
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={item.unitPrice.toFixed(2)}
-                        onChange={e => handleItemChange(index, 'unitPrice', parseFloat(e.target.value))}
-                        className="block w-32 border-0 p-0 text-gray-900 placeholder-gray-500 focus:ring-0 sm:text-sm"
-                      />
-                    </td>
-                    <td className="px-6 py-4 text-sm text-gray-900">
-                      {formatCurrency(item.total)}
-                    </td>
-                    <td className="px-6 py-4 text-right text-sm font-medium">
-                      <button
-                        type="button"
-                        onClick={() => removeItem(index)}
-                        className="text-red-600 hover:text-red-900"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </td>
+          {/* Items */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-lg font-semibold text-gray-900">Articles</h2>
+              <div className="flex items-center space-x-3">
+                <button
+                  type="button"
+                  onClick={() => setShowProductSearch(true)}
+                  className="flex items-center space-x-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+                >
+                  <Search className="w-4 h-4" />
+                  <span>Rechercher un produit</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={addItem}
+                  className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Ajouter un article</span>
+                </button>
+              </div>
+            </div>
+
+            {errors.items && (
+              <div className="mb-4 p-4 bg-red-50 rounded-lg flex items-center text-red-700">
+                <AlertTriangle className="w-5 h-5 mr-2" />
+                <p className="text-sm">{errors.items}</p>
+              </div>
+            )}
+
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b-2 border-gray-200">
+                    <th className="text-left p-2">Description</th>
+                    <th className="text-right p-2">Quantité</th>
+                    <th className="text-right p-2">Prix unitaire</th>
+                    <th className="text-right p-2">Total HT</th>
+                    <th className="text-right p-2">TVA</th>
+                    <th className="text-right p-2">Total TTC</th>
+                    <th className="w-10"></th>
                   </tr>
-                ))}
-              </tbody>
-              <tfoot className="bg-gray-50">
-                <tr>
-                  <td colSpan={3} className="px-6 py-3 text-right text-sm font-medium text-gray-900">
-                    Sous-total HT
-                  </td>
-                  <td className="px-6 py-3 text-sm text-gray-900">
-                    {formatCurrency(formData.subtotal || 0)}
-                  </td>
-                  <td></td>
-                </tr>
-                {(() => {
-                  const taxRates = new Map<number, number>();
-                  formData.items?.forEach(item => {
-                    const currentTax = item.total * (item.taxRate / 100);
-                    taxRates.set(item.taxRate, (taxRates.get(item.taxRate) || 0) + currentTax);
-                  });
-                  return Array.from(taxRates.entries()).map(([rate, amount]) => (
-                    <tr key={rate}>
-                      <td colSpan={3} className="px-6 py-3 text-right text-sm font-medium text-gray-900">
-                        TVA ({rate}%)
+                </thead>
+                <tbody>
+                  {formData.items?.map((item, index) => (
+                    <tr key={item.id} className="border-b border-gray-200">
+                      <td className="p-2">
+                        <input
+                          type="text"
+                          value={item.description}
+                          onChange={e => handleItemChange(index, 'description', e.target.value)}
+                          className="w-full px-2 py-1 border border-gray-300 rounded"
+                          placeholder="Description"
+                        />
                       </td>
-                      <td className="px-6 py-3 text-sm text-gray-900">
-                        {formatCurrency(amount)}
+                      <td className="p-2">
+                        <input
+                          type="number"
+                          min="1"
+                          value={item.quantity}
+                          onChange={e => handleItemChange(index, 'quantity', parseInt(e.target.value))}
+                          className="w-20 px-2 py-1 border border-gray-300 rounded text-right"
+                        />
                       </td>
-                      <td></td>
+                      <td className="p-2">
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={item.unitPrice}
+                          onChange={e => handleItemChange(index, 'unitPrice', parseFloat(e.target.value))}
+                          className="w-32 px-2 py-1 border border-gray-300 rounded text-right"
+                        />
+                      </td>
+                      <td className="p-2 text-right">{formatCurrency(item.total)}</td>
+                      <td className="p-2 text-right">{formatCurrency(item.total * (item.taxRate / 100))}</td>
+                      <td className="p-2 text-right">{formatCurrency(item.total * (1 + item.taxRate / 100))}</td>
+                      <td className="p-2">
+                        <button
+                          type="button"
+                          onClick={() => removeItem(index)}
+                          className="text-red-600 hover:text-red-800 p-1"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </td>
                     </tr>
-                  ));
-                })()}
-                <tr>
-                  <td colSpan={3} className="px-6 py-3 text-right text-sm font-medium text-gray-900">
-                    Total TTC
-                  </td>
-                  <td className="px-6 py-3 text-sm font-medium text-gray-900">
-                    {formatCurrency(formData.total || 0)}
-                  </td>
-                  <td></td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Notes</label>
-          <textarea
-            value={formData.notes}
-            onChange={e => setFormData(prev => ({ ...prev, notes: e.target.value }))}
-            rows={4}
-            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-            placeholder="Notes ou conditions particulières..."
-          />
-        </div>
-
-        <div className="flex justify-end space-x-3">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-            disabled={isSubmitting}
-          >
-            Annuler
-          </button>
-          <button
-            type="submit"
-            className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-            disabled={isSubmitting}
-          >
-            <Save className="w-4 h-4 mr-2" />
-            {isSubmitting ? 'Enregistrement...' : 'Enregistrer'}
-          </button>
-        </div>
-
-        {errors.submit && (
-          <div className="mt-4 p-4 bg-red-50 rounded-md">
-            <div className="flex">
-              <AlertTriangle className="w-5 h-5 text-red-400" />
-              <p className="ml-3 text-sm text-red-500">{errors.submit}</p>
+                  ))}
+                </tbody>
+                <tfoot className="bg-gray-50">
+                  <tr>
+                    <td colSpan={3} className="p-2 text-right font-medium">Total HT</td>
+                    <td className="p-2 text-right font-medium">{formatCurrency(formData.subtotal || 0)}</td>
+                    <td colSpan={3}></td>
+                  </tr>
+                  <tr>
+                    <td colSpan={3} className="p-2 text-right font-medium">TVA</td>
+                    <td className="p-2 text-right font-medium">{formatCurrency(formData.tax || 0)}</td>
+                    <td colSpan={3}></td>
+                  </tr>
+                  <tr>
+                    <td colSpan={3} className="p-2 text-right font-medium">Total TTC</td>
+                    <td className="p-2 text-right font-bold">{formatCurrency(formData.total || 0)}</td>
+                    <td colSpan={3}></td>
+                  </tr>
+                </tfoot>
+              </table>
             </div>
           </div>
-        )}
-      </form>
+
+          {/* Notes */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h2 className="text-lg font-semibold text-gray-900 mb-4">Notes</h2>
+            <textarea
+              value={formData.notes}
+              onChange={e => setFormData(prev => ({ ...prev, notes: e.target.value }))}
+              rows={4}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              placeholder="Notes ou conditions particulières..."
+            />
+          </div>
+
+          {errors.submit && (
+            <div className="p-4 bg-red-50 rounded-lg flex items-center text-red-700">
+              <AlertTriangle className="w-5 h-5 mr-2" />
+              <p className="text-sm">{errors.submit}</p>
+            </div>
+          )}
+        </form>
+      </div>
 
       {showProductSearch && (
         <ProductSearch
