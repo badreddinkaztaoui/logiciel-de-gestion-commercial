@@ -213,6 +213,17 @@ const SalesJournalComponent: React.FC = () => {
     );
   }
 
+  if (showForm && selectedJournal) {
+    return (
+      <SalesJournalForm
+        journal={selectedJournal}
+        onClose={handleCloseForm}
+        onValidate={handleValidateJournal}
+        onExport={handleExportJournal}
+      />
+    );
+  }
+
   return (
     <div className="h-full flex flex-col">
       <Toaster position="top-right" />
@@ -414,16 +425,6 @@ const SalesJournalComponent: React.FC = () => {
           </div>
         </div>
       </div>
-
-      {/* Form Modal */}
-      {showForm && selectedJournal && (
-        <SalesJournalForm
-          journal={selectedJournal}
-          onClose={handleCloseForm}
-          onValidate={handleValidateJournal}
-          onExport={handleExportJournal}
-        />
-      )}
     </div>
   );
 };

@@ -39,15 +39,11 @@ const Settings: React.FC = () => {
     const initializeSettings = async () => {
       setLoadingSettings(true);
       try {
-        // Check for numbering reset on component mount
         await settingsService.checkAndResetNumbering();
-
-        // Load settings
         const loadedSettings = await settingsService.getSettings();
         setSettings(loadedSettings);
       } catch (error) {
         console.error('Error loading settings:', error);
-        // Use default settings from the service
         const defaultSettings = await settingsService.getSettings();
         setSettings(defaultSettings);
       } finally {
@@ -234,15 +230,17 @@ const Settings: React.FC = () => {
   // Show loading state while settings are being loaded
   if (loadingSettings || !settings) {
     return (
-      <div className="space-y-6">
-        <div className="flex justify-between items-start">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Paramètres</h1>
-            <p className="text-gray-600">Configuration de votre application</p>
+      <div className="h-screen flex flex-col overflow-hidden">
+        <div className="flex-none p-6 bg-white border-b">
+          <div className="flex justify-between items-start">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900">Paramètres</h1>
+              <p className="text-gray-600 mt-1">Configuration de votre application</p>
+            </div>
           </div>
         </div>
 
-        <div className="flex items-center justify-center py-12">
+        <div className="flex-1 flex items-center justify-center">
           <div className="flex items-center space-x-3 text-gray-600">
             <Loader2 className="w-6 h-6 animate-spin" />
             <span>Chargement des paramètres...</span>
@@ -253,117 +251,124 @@ const Settings: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="h-screen flex flex-col overflow-hidden pb-20">
       {/* Header */}
-      <div className="flex justify-between items-start">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Paramètres</h1>
-          <p className="text-gray-600">Configuration de votre application</p>
-        </div>
+      <div className="flex-none p-6 bg-white border-b">
+        <div className="flex justify-between items-start">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Paramètres</h1>
+            <p className="text-gray-600 mt-1">Configuration de votre application</p>
+          </div>
 
-        <div className="flex items-center space-x-3">
-          {/* Import/Export */}
-          <label className="cursor-pointer flex items-center space-x-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors">
-            <Upload className="w-4 h-4" />
-            <span>Importer</span>
-            <input
-              type="file"
-              accept=".json"
-              onChange={handleImport}
-              className="hidden"
-            />
-          </label>
-
-          <button
-            onClick={handleExport}
-            className="flex items-center space-x-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
-          >
-            <Download className="w-4 h-4" />
-            <span>Exporter</span>
-          </button>
-
-          {/* Reset */}
-          <button
-            onClick={handleReset}
-            className="flex items-center space-x-2 px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors"
-          >
-            <RotateCcw className="w-4 h-4" />
-            <span>Réinitialiser</span>
-          </button>
-
-          {/* Save */}
-          <button
-            onClick={handleSave}
-            disabled={saveStatus === 'saving'}
-            className={`flex items-center space-x-2 px-6 py-2 rounded-lg transition-colors ${
-              saveStatus === 'saved'
-                ? 'bg-green-600 text-white'
-                : saveStatus === 'error'
-                ? 'bg-red-600 text-white'
-                : 'bg-blue-600 text-white hover:bg-blue-700'
-            } disabled:opacity-50`}
-          >
-            {getSaveButtonContent()}
-          </button>
-        </div>
-      </div>
-
-      {/* Navigation Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
-        {tabs.map((tab) => {
-          const Icon = tab.icon;
-          const isActive = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`p-4 rounded-lg border-2 transition-all duration-200 ${
-                isActive
-                  ? `border-${tab.color}-500 bg-${tab.color}-50`
-                  : 'border-gray-200 hover:border-gray-300 bg-white hover:bg-gray-50'
-              }`}
-            >
-              <div className="flex flex-col items-center space-y-2">
-                <Icon className={`w-6 h-6 ${
-                  isActive ? `text-${tab.color}-600` : 'text-gray-500'
-                }`} />
-                <span className={`text-sm font-medium text-center ${
-                  isActive ? `text-${tab.color}-700` : 'text-gray-700'
-                }`}>
-                  {tab.label}
-                </span>
-              </div>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Content */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200">
-        {/* Tab Header */}
-        <div className={`border-b border-gray-200 px-6 py-4 bg-${currentTab?.color}-50`}>
           <div className="flex items-center space-x-3">
-            {currentTab && <currentTab.icon className={`w-5 h-5 text-${currentTab.color}-600`} />}
-            <div>
-              <h2 className={`text-lg font-semibold text-${currentTab?.color}-900`}>
-                {currentTab?.label}
-              </h2>
-              <p className={`text-sm text-${currentTab?.color}-700`}>
-                {activeTab === 'company' && 'Informations de votre entreprise'}
-                {activeTab === 'numbering' && 'Configuration de la numérotation des documents'}
-                {activeTab === 'template' && 'Personnalisation de l\'apparence des documents'}
-                {activeTab === 'woocommerce' && 'Intégration avec votre boutique WooCommerce'}
-                {activeTab === 'delivery' && 'Paramètres des bons de livraison'}
-                {activeTab === 'returns' && 'Configuration des bons de retour'}
-                {activeTab === 'legal' && 'Mentions légales et conditions'}
-              </p>
-            </div>
+            {/* Import/Export */}
+            <label className="cursor-pointer flex items-center space-x-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors">
+              <Upload className="w-4 h-4" />
+              <span>Importer</span>
+              <input
+                type="file"
+                accept=".json"
+                onChange={handleImport}
+                className="hidden"
+              />
+            </label>
+
+            <button
+              onClick={handleExport}
+              className="flex items-center space-x-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+            >
+              <Download className="w-4 h-4" />
+              <span>Exporter</span>
+            </button>
+
+            {/* Reset */}
+            <button
+              onClick={handleReset}
+              className="flex items-center space-x-2 px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition-colors"
+            >
+              <RotateCcw className="w-4 h-4" />
+              <span>Réinitialiser</span>
+            </button>
+
+            {/* Save */}
+            <button
+              onClick={handleSave}
+              disabled={saveStatus === 'saving'}
+              className={`flex items-center space-x-2 px-6 py-2 rounded-lg transition-colors ${
+                saveStatus === 'saved'
+                  ? 'bg-green-600 text-white'
+                  : saveStatus === 'error'
+                  ? 'bg-red-600 text-white'
+                  : 'bg-blue-600 text-white hover:bg-blue-700'
+              } disabled:opacity-50`}
+            >
+              {getSaveButtonContent()}
+            </button>
           </div>
         </div>
+      </div>
 
-        {/* Tab Content */}
-        <div className="p-6">
-          {renderTabContent()}
+      {/* Scrollable Content */}
+      <div className="flex-1 overflow-auto p-6">
+        <div className="max-w-7xl mx-auto space-y-6">
+          {/* Navigation Cards */}
+          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
+            {tabs.map((tab) => {
+              const Icon = tab.icon;
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`p-4 rounded-lg border-2 transition-all duration-200 ${
+                    isActive
+                      ? `border-${tab.color}-500 bg-${tab.color}-50`
+                      : 'border-gray-200 hover:border-gray-300 bg-white hover:bg-gray-50'
+                  }`}
+                >
+                  <div className="flex flex-col items-center space-y-2">
+                    <Icon className={`w-6 h-6 ${
+                      isActive ? `text-${tab.color}-600` : 'text-gray-500'
+                    }`} />
+                    <span className={`text-sm font-medium text-center ${
+                      isActive ? `text-${tab.color}-700` : 'text-gray-700'
+                    }`}>
+                      {tab.label}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Content */}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+            {/* Tab Header */}
+            <div className={`border-b border-gray-200 px-6 py-4 bg-${currentTab?.color}-50`}>
+              <div className="flex items-center space-x-3">
+                {currentTab && <currentTab.icon className={`w-5 h-5 text-${currentTab.color}-600`} />}
+                <div>
+                  <h2 className={`text-lg font-semibold text-${currentTab?.color}-900`}>
+                    {currentTab?.label}
+                  </h2>
+                  <p className={`text-sm text-${currentTab?.color}-700`}>
+                    {activeTab === 'company' && 'Informations de votre entreprise'}
+                    {activeTab === 'numbering' && 'Configuration de la numérotation des documents'}
+                    {activeTab === 'template' && 'Personnalisation de l\'apparence des documents'}
+                    {activeTab === 'woocommerce' && 'Intégration avec votre boutique WooCommerce'}
+                    {activeTab === 'delivery' && 'Paramètres des bons de livraison'}
+                    {activeTab === 'returns' && 'Configuration des bons de retour'}
+                    {activeTab === 'legal' && 'Mentions légales et conditions'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Tab Content */}
+            <div className="p-6">
+              {renderTabContent()}
+            </div>
+          </div>
         </div>
       </div>
     </div>
