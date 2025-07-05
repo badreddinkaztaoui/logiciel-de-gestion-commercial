@@ -11,38 +11,47 @@
   aside,
   .print\:hidden,
   nav,
-  button {
+  button,
+  .no-print {
     display: none !important;
   }
 
   /* Reset layout for print */
-  main {
+  body {
     margin: 0 !important;
     padding: 0 !important;
-  }
-
-  .p-6 {
-    padding: 0 !important;
-  }
-
-  /* Basic styles */
-  body {
+    min-height: 100%;
+    height: auto !important;
     font-family: Arial, sans-serif;
     font-size: 9pt;
     line-height: 1.2;
     color: #000;
     background: #fff;
-    margin: 0;
-    padding: 0;
   }
 
-  /* Document header */
-  h1 {
+  /* Remove all scroll and overflow constraints */
+  html, body, #root, .h-screen, .overflow-hidden, .overflow-auto {
+    overflow: visible !important;
+    height: auto !important;
+    position: relative !important;
+  }
+
+  /* Document header - only show on first page */
+  .print-header {
+    position: relative;
+    margin-bottom: 0.8cm;
+    page-break-after: avoid;
+  }
+
+  /* Document title */
+  .print-title {
     font-size: 12pt;
     font-weight: bold;
     text-transform: uppercase;
-    margin: 0 0 0.8cm 0;
+    margin: 0 0 0.4cm 0;
     padding: 0;
+    text-align: center;
+    page-break-after: avoid;
   }
 
   /* Document info box */
@@ -52,6 +61,7 @@
     margin-bottom: 0.8cm;
     display: flex;
     justify-content: space-between;
+    page-break-inside: avoid;
   }
 
   .document-info > div {
@@ -76,6 +86,14 @@
     border-collapse: collapse;
     margin-bottom: 0.8cm;
     page-break-inside: auto;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+
+  tfoot {
+    display: table-footer-group;
   }
 
   tr {
@@ -108,7 +126,7 @@
   /* Totals section */
   .totals-section {
     width: 45% !important;
-    margin-left: 0 !important;
+    margin-left: auto !important;
     border: none !important;
     page-break-inside: avoid;
   }
@@ -183,24 +201,16 @@
 
   /* Page number */
   .page-number {
+    position: running(pageNumber);
     text-align: right;
-    margin-top: 0.8cm;
     font-size: 7pt;
   }
 
-  .page-number p {
-    margin: 0;
-    padding: 0;
-  }
-
-  /* Force page breaks */
-  .page-break {
-    page-break-before: always;
-  }
-
-  /* Prevent breaks inside elements */
-  tr, td, th {
-    page-break-inside: avoid;
+  @page {
+    @bottom-right {
+      content: "Page " counter(page) " sur " counter(pages);
+      font-size: 7pt;
+    }
   }
 
   /* Table column widths */
