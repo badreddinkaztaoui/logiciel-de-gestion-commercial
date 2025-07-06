@@ -4,15 +4,12 @@ import {
   Eye,
   Download,
   Search,
-  Calendar,
   FileText,
   TrendingUp,
   AlertCircle,
   CheckCircle,
   Receipt,
-  Shield,
-  Loader2,
-  X
+  Loader2
 } from 'lucide-react';
 import { toast, Toaster } from 'react-hot-toast';
 import { salesJournalService } from '../services/salesJournalService';
@@ -151,35 +148,6 @@ const SalesJournalComponent: React.FC = () => {
         console.error('Error validating journal:', error);
         toast.error(error instanceof Error ? error.message : 'Erreur lors de la validation du journal');
       }
-    }
-  };
-
-  const getExemptProductsTotal = () => {
-    let totalExemptTTC = 0;
-    let totalExemptLines = 0;
-
-    journals.forEach(journal => {
-      const exemptLines = journal.lines.filter(line => line.taxRate === 0);
-      totalExemptTTC += exemptLines.reduce((sum, line) => sum + line.totalTTC, 0);
-      totalExemptLines += exemptLines.length;
-    });
-
-    return {
-      totalTTC: totalExemptTTC,
-      linesCount: totalExemptLines
-    };
-  };
-
-  const exemptStats = getExemptProductsTotal();
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'validated':
-        return <CheckCircle className="w-4 h-4 text-green-500" />;
-      case 'draft':
-        return <AlertCircle className="w-4 h-4 text-orange-500" />;
-      default:
-        return <FileText className="w-4 h-4 text-gray-500" />;
     }
   };
 
@@ -384,7 +352,7 @@ const SalesJournalComponent: React.FC = () => {
                       {formatCurrency(journal.totals.totalTTC)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap w-32">
-                      <div className="flex justify-center space-x-2">
+                      <div className="flex justify-end space-x-2">
                         <button
                           onClick={() => handleViewJournal(journal)}
                           className="text-blue-600 hover:text-blue-900"
@@ -398,7 +366,7 @@ const SalesJournalComponent: React.FC = () => {
                             className="text-green-600 hover:text-green-900"
                             title="Valider"
                           >
-                            <Shield className="w-4 h-4" />
+                            <CheckCircle className="w-4 h-4" />
                           </button>
                         )}
                         <button

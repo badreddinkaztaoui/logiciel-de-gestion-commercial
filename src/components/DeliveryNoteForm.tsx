@@ -13,7 +13,6 @@ import { DeliveryNote, WooCommerceOrder, Invoice } from '../types';
 import { orderService } from '../services/orderService';
 import { invoiceService } from '../services/invoiceService';
 import { wooCommerceService } from '../services/woocommerce';
-import { generateDocumentNumber } from '../utils/formatters';
 
 interface DeliveryNoteFormProps {
   editingNote?: DeliveryNote | null;
@@ -101,11 +100,9 @@ const DeliveryNoteForm: React.FC<DeliveryNoteFormProps> = ({
           const tomorrow = new Date();
           tomorrow.setDate(tomorrow.getDate() + 1);
 
-          const documentNumber = await generateDocumentNumber('BL');
-
           setFormData({
             id: crypto.randomUUID(),
-            number: documentNumber,
+            number: '', // Will be generated on save
             date: new Date().toISOString().split('T')[0],
             status: 'draft',
             customer_data: {
@@ -141,11 +138,9 @@ const DeliveryNoteForm: React.FC<DeliveryNoteFormProps> = ({
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    const documentNumber = await generateDocumentNumber('BL');
-
     setFormData({
       id: crypto.randomUUID(),
-      number: documentNumber,
+      number: '', // Will be generated on save
       orderId: order.id,
       date: new Date().toISOString().split('T')[0],
       status: 'draft',
@@ -176,11 +171,9 @@ const DeliveryNoteForm: React.FC<DeliveryNoteFormProps> = ({
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    const documentNumber = await generateDocumentNumber('BL');
-
     setFormData({
       id: crypto.randomUUID(),
-      number: documentNumber,
+      number: '', // Will be generated on save
       invoice_id: invoice.id,
       orderId: invoice.orderId,
       date: new Date().toISOString().split('T')[0],
@@ -516,9 +509,9 @@ const DeliveryNoteForm: React.FC<DeliveryNoteFormProps> = ({
                 <input
                   type="text"
                   value={formData.number}
-                  onChange={(e) => setFormData(prev => ({ ...prev, number: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  required
+                  placeholder="Sera généré automatiquement"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-gray-50"
+                  readOnly
                 />
               </div>
               <div>

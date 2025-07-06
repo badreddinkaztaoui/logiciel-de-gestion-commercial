@@ -578,13 +578,15 @@ const DeliveryNotes: React.FC = () => {
                         >
                           <Eye className="w-4 h-4" />
                         </button>
-                        <button
-                          onClick={() => handleDeleteNote(note.id)}
-                          className="text-red-600 hover:text-red-900"
-                          title="Supprimer"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {note.status !== 'cancelled' && (
+                          <button
+                            onClick={() => handleUpdateStatus(note, 'cancelled')}
+                            className="text-red-600 hover:text-red-900"
+                            title="Annuler"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -699,6 +701,17 @@ const DeliveryNotes: React.FC = () => {
                 >
                   Modifier
                 </button>
+                {selectedNote.status !== 'cancelled' && (
+                  <button
+                    onClick={() => {
+                      handleUpdateStatus(selectedNote, 'cancelled');
+                      setSelectedNote(null);
+                    }}
+                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+                  >
+                    Annuler
+                  </button>
+                )}
                 <button
                   onClick={() => setSelectedNote(null)}
                   className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"

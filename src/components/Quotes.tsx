@@ -4,21 +4,19 @@ import {
   Plus,
   Edit,
   Eye,
-  Trash2,
   Search,
   FileText,
   Clock,
   CheckCircle,
   X,
   TrendingUp,
-  Loader2
+  Loader2,
+  XCircle,
 } from 'lucide-react';
 import { quoteService } from '../services/quoteService';
-import { invoiceService } from '../services/invoiceService';
 import { Quote } from '../types';
 import { formatCurrency, formatDate } from '../utils/formatters';
 import { toast, Toaster } from 'react-hot-toast';
-import { supabase } from '../lib/supabase';
 
 const Quotes: React.FC = () => {
   const navigate = useNavigate();
@@ -87,90 +85,20 @@ const Quotes: React.FC = () => {
     navigate(`/quotes/${quote.id}`);
   };
 
-  const handleDeleteQuote = async (quoteId: string) => {
-    if (window.confirm('Êtes-vous sûr de vouloir supprimer ce devis ?')) {
+  const handleCancelQuote = async (quoteId: string) => {
+    if (window.confirm('Êtes-vous sûr de vouloir annuler ce devis ?')) {
       try {
-        await quoteService.deleteQuote(quoteId);
-        toast.success('Devis supprimé avec succès');
+        await quoteService.cancelQuote(quoteId);
+        toast.success('Devis annulé avec succès');
         await loadQuotes();
       } catch (error) {
-        console.error('Error deleting quote:', error);
-
-        // Run comprehensive debugging
-        console.log('Running comprehensive debug analysis...');
-        await quoteService.debugQuoteAccess(quoteId);
-        await quoteService.checkRLSPolicies();
-        await quoteService.attemptDirectDelete(quoteId);
-
-        // Check if the error is due to RLS policies
-        if (error instanceof Error && error.message.includes('still exists')) {
-          console.log('Attempting soft delete workaround...');
-
-          try {
-            // Try soft delete approach - update status to 'deleted' instead of actual deletion
-            const { data: softDeleteResult, error: softDeleteError } = await supabase
-              .from('quotes')
-              .update({
-                status: 'deleted',
-                deleted_at: new Date().toISOString(),
-                updated_at: new Date().toISOString()
-              })
-              .eq('id', quoteId)
-              .select();
-
-            if (softDeleteError) {
-              console.error('Soft delete failed:', softDeleteError);
-              throw error; // Re-throw original error
-            }
-
-            console.log('Soft delete successful:', softDeleteResult);
-            toast.success('Devis supprimé avec succès (soft delete)');
-            await loadQuotes();
-            return; // Exit successfully
-          } catch (softDeleteErr) {
-            console.error('Soft delete workaround failed:', softDeleteErr);
-          }
-        }
-
-        // Provide more specific error messages
-        let errorMessage = 'Erreur lors de la suppression du devis';
-
-        if (error instanceof Error) {
-          if (error.message.includes('authentication')) {
-            errorMessage = 'Erreur d\'authentification. Veuillez vous reconnecter.';
-          } else if (error.message.includes('foreign key')) {
-            errorMessage = 'Impossible de supprimer ce devis car il est référencé dans d\'autres documents.';
-          } else if (error.message.includes('permission')) {
-            errorMessage = 'Vous n\'avez pas les permissions nécessaires pour supprimer ce devis.';
-          } else if (error.message.includes('not found')) {
-            errorMessage = 'Ce devis n\'existe plus ou a déjà été supprimé.';
-          } else if (error.message.includes('Row Level Security')) {
-            errorMessage = 'Impossible de supprimer ce devis. Vérifiez les permissions de la base de données.';
-          } else if (error.message.includes('still exists')) {
-            errorMessage = 'La suppression a échoué en raison des politiques de sécurité de la base de données. Contactez l\'administrateur.';
-          } else {
-            errorMessage = `Erreur lors de la suppression: ${error.message}`;
-          }
-        }
-
-        toast.error(errorMessage);
+        console.error('Error cancelling quote:', error);
+        toast.error('Erreur lors de l\'annulation du devis');
       }
     }
   };
 
-  const handleSaveQuote = async (quote: Quote) => {
-    try {
-      if (quote.id) {
-        await quoteService.updateQuote(quote.id, quote);
-      } else {
-        await quoteService.createQuote(quote);
-      }
-      await loadQuotes();
-    } catch (error) {
-      console.error('Error saving quote:', error);
-      alert('Erreur lors de la sauvegarde du devis');
-    }
-  };
+
 
   const handleAcceptQuote = async (quoteId: string) => {
     try {
@@ -239,6 +167,8 @@ const Quotes: React.FC = () => {
         return 'bg-red-100 text-red-800';
       case 'expired':
         return 'bg-yellow-100 text-yellow-800';
+      case 'cancelled':
+        return 'bg-orange-100 text-orange-800';
       default:
         return 'bg-gray-100 text-gray-800';
     }
@@ -256,6 +186,8 @@ const Quotes: React.FC = () => {
         return 'Rejeté';
       case 'expired':
         return 'Expiré';
+      case 'cancelled':
+        return 'Annulé';
       default:
         return status;
     }
@@ -365,6 +297,7 @@ const Quotes: React.FC = () => {
                 <option value="accepted">Accepté</option>
                 <option value="rejected">Rejeté</option>
                 <option value="expired">Expiré</option>
+                <option value="cancelled">Annulé</option>
               </select>
             </div>
           </div>
@@ -458,11 +391,11 @@ const Quotes: React.FC = () => {
                           <Eye className="w-4 h-4" />
                         </button>
                         <button
-                          onClick={() => handleDeleteQuote(quote.id)}
+                          onClick={() => handleCancelQuote(quote.id)}
                           className="text-red-600 hover:text-red-900"
-                          title="Supprimer"
+                          title="Annuler"
                         >
-                          <Trash2 className="w-4 h-4" />
+                          <XCircle className="w-4 h-4" />
                         </button>
                       </div>
                     </td>

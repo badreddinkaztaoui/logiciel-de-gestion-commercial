@@ -265,18 +265,44 @@ class QuoteService {
       }
 
       // Convert quote items to invoice items format
-      const invoiceItems = quote.items.map(item => ({
-        id: crypto.randomUUID(),
-        description: item.description,
-        quantity: item.quantity,
-        unitPrice: item.unitPrice,
-        unitPriceHT: item.unitPrice, // For now, assuming prices are HT
-        total: item.total,
-        totalHT: item.total,
-        taxRate: 20, // Default tax rate
-        taxAmount: item.total * 0.2,
-        sku: `ITEM-${Date.now()}`
-      }));
+      const invoiceItems = quote.items.map(item => {
+        let taxRate = item.taxRate || 0;
+        let taxAmount = item.taxAmount || 0;
+        let unitPriceHT = item.unitPriceHT || item.unitPrice;
+        let totalHT = item.totalHT || item.total;
+
+        // Smart fallback for existing quotes without tax information
+        if (!item.taxRate && !item.taxAmount && !item.unitPriceHT) {
+          // For old quotes without tax information, use 20% as default (Morocco standard)
+          // User can edit the invoice after conversion if needed
+          taxRate = 20;
+          unitPriceHT = this.round2(item.unitPrice / 1.2);
+          totalHT = this.round2(unitPriceHT * item.quantity);
+          taxAmount = this.round2(totalHT * 0.2);
+        } else if (taxRate > 0 && (!item.unitPriceHT || !item.totalHT)) {
+          // We have tax rate but no HT prices, calculate them
+          const taxRate100 = taxRate / 100;
+          unitPriceHT = Math.round((item.unitPrice / (1 + taxRate100)) * 100) / 100;
+          totalHT = Math.round((unitPriceHT * item.quantity) * 100) / 100;
+          if (!taxAmount) {
+            taxAmount = Math.round((totalHT * taxRate100) * 100) / 100;
+          }
+        }
+
+        return {
+          id: crypto.randomUUID(),
+          description: item.description,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          unitPriceHT: unitPriceHT,
+          total: item.total,
+          totalHT: totalHT,
+          taxRate: taxRate,
+          taxAmount: taxAmount,
+          sku: item.sku || `ITEM-${Date.now()}`,
+          productId: item.productId
+        };
+      });
 
       // Calculate totals
       const subtotal = invoiceItems.reduce((sum, item) => sum + item.totalHT, 0);
@@ -286,6 +312,17 @@ class QuoteService {
       // Generate due date (30 days from today)
       const dueDate = new Date();
       dueDate.setDate(dueDate.getDate() + 30);
+
+      let notes = `Facture générée à partir du devis ${quote.number}. ${quote.notes || ''}`.trim();
+
+      // Add note about tax detection if this was an old quote
+      const hasOldFormat = quote.items.some(item =>
+        !item.taxRate && !item.taxAmount && !item.unitPriceHT
+      );
+
+      if (hasOldFormat) {
+        notes += '\n\nNote: Taux TVA 20% appliqué par défaut pour ce devis (créé avant la mise à jour). Vous pouvez modifier les taux TVA si nécessaire.';
+      }
 
       const invoiceData = {
         id: crypto.randomUUID(),
@@ -305,10 +342,10 @@ class QuoteService {
         items: invoiceItems,
         subtotal,
         tax,
-        taxRate: 20,
+        taxRate: 20, // This is a legacy field, individual items now have their own tax rates
         total,
         currency: 'MAD',
-        notes: `Facture générée à partir du devis ${quote.number}. ${quote.notes || ''}`.trim()
+        notes
       };
 
       return invoiceData;
@@ -347,6 +384,19 @@ class QuoteService {
     }
   }
 
+  async cancelQuote(quoteId: string): Promise<void> {
+    try {
+      const quote = await this.getQuote(quoteId);
+      if (quote) {
+        quote.status = 'cancelled';
+        await this.updateQuote(quoteId, quote);
+      }
+    } catch (error) {
+      console.error('Error cancelling quote:', error);
+      throw error;
+    }
+  }
+
   async checkExpiredQuotes(): Promise<Quote[]> {
     try {
       const quotes = await this.getQuotes();
@@ -379,6 +429,7 @@ class QuoteService {
         accepted: quotes.filter(q => q.status === 'accepted').length,
         rejected: quotes.filter(q => q.status === 'rejected').length,
         expired: quotes.filter(q => q.status === 'expired').length,
+        cancelled: quotes.filter(q => q.status === 'cancelled').length,
         totalValue: quotes.reduce((sum, q) => sum + q.total, 0),
         acceptedValue: quotes.filter(q => q.status === 'accepted').reduce((sum, q) => sum + q.total, 0),
         pendingValue: quotes.filter(q => q.status === 'sent').reduce((sum, q) => sum + q.total, 0)
@@ -392,6 +443,7 @@ class QuoteService {
         accepted: 0,
         rejected: 0,
         expired: 0,
+        cancelled: 0,
         totalValue: 0,
         acceptedValue: 0,
         pendingValue: 0
@@ -565,6 +617,10 @@ class QuoteService {
     } catch (error) {
       console.error('Error in direct delete attempts:', error);
     }
+  }
+
+  private round2(value: number): number {
+    return Math.round(value * 100) / 100;
   }
 }
 

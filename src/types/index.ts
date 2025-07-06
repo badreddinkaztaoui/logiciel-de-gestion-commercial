@@ -96,12 +96,18 @@ export interface Quote {
   };
   date: string;
   validUntil: string;
-  status: 'draft' | 'sent' | 'accepted' | 'rejected' | 'expired' | 'deleted';
+  status: 'draft' | 'sent' | 'accepted' | 'rejected' | 'expired' | 'deleted' | 'cancelled';
   items: {
     description: string;
     quantity: number;
     unitPrice: number;
     total: number;
+    unitPriceHT?: number;
+    totalHT?: number;
+    taxRate?: number;
+    taxAmount?: number;
+    productId?: number;
+    sku?: string;
   }[];
   subtotal: number;
   tax: number;

@@ -17,8 +17,6 @@ import {
 } from 'lucide-react';
 import { toast, Toaster } from 'react-hot-toast';
 import { invoiceService } from '../services/invoiceService';
-import { deliveryNoteService } from '../services/deliveryNoteService';
-import { returnNoteService } from '../services/returnNoteService';
 import { wooCommerceService } from '../services/woocommerce';
 import { Invoice } from '../types/index';
 import { formatCurrency, formatDate } from '../utils/formatters';
@@ -614,6 +612,18 @@ const Invoices: React.FC = () => {
                   >
                     <RefreshCw className="w-4 h-4" />
                     <span>Bon de retour</span>
+                  </button>
+                )}
+                {canCancelInvoice(selectedInvoice) && (
+                  <button
+                    onClick={() => {
+                      handleCancelInvoice(selectedInvoice.id);
+                      setSelectedInvoice(null);
+                    }}
+                    className="flex items-center space-x-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                    <span>Annuler</span>
                   </button>
                 )}
                 <button

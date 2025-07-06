@@ -8,7 +8,9 @@ interface InvoiceItem {
   description: string;
   quantity: number;
   unitPrice: number;
+  unitPriceHT: number;
   total: number;
+  totalHT: number;
   taxRate: number;
   taxAmount: number;
   productId?: number;
@@ -38,6 +40,9 @@ const InvoiceItems: React.FC<InvoiceItemsProps> = ({
   onShowProductSearch,
   errors
 }) => {
+
+  console.log('🔍 InvoiceItems received items:', items);
+
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
       <div className="flex justify-between items-center mb-6">
@@ -175,13 +180,13 @@ const InvoiceItems: React.FC<InvoiceItemsProps> = ({
                 <td className="px-6 py-4 text-right w-40">
                   <div className="text-blue-600 font-bold">{formatCurrency(item.total)}</div>
                   <div className="text-xs text-gray-500">
-                    HT: {formatCurrency(round2(item.total / (1 + (item.taxRate || 0) / 100)))}
+                    HT: {formatCurrency(item.totalHT)}
                   </div>
                 </td>
                 <td className="px-6 py-4 text-right w-32">
                   <div className="flex flex-col items-end space-y-1">
                     <select
-                      value={item.taxRate ?? 20}
+                      value={item.taxRate}
                       onChange={(e) => onItemChange(index, 'taxRate', parseFloat(e.target.value))}
                       className="w-20 px-2 py-1 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     >

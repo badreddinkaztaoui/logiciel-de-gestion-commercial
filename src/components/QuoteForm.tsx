@@ -105,10 +105,12 @@ const QuoteForm: React.FC = () => {
               quantity: item.quantity,
               unitPrice: item.unitPrice,
               total: item.total,
-              unitPriceHT: item.unitPrice, // Default to same as unitPrice for display
-              totalHT: item.total,
-              taxRate: 0,
-              taxAmount: 0
+              unitPriceHT: item.unitPriceHT || item.unitPrice, // Use existing HT price if available
+              totalHT: item.totalHT || item.total, // Use existing HT total if available
+              taxRate: item.taxRate || 0, // Use existing tax rate if available
+              taxAmount: item.taxAmount || 0, // Use existing tax amount if available
+              productId: item.productId,
+              sku: item.sku
             }));
 
             setFormData({
@@ -352,7 +354,13 @@ const QuoteForm: React.FC = () => {
         description: item.description,
         quantity: item.quantity,
         unitPrice: item.unitPrice,
-        total: item.total
+        total: item.total,
+        unitPriceHT: item.unitPriceHT,
+        totalHT: item.totalHT,
+        taxRate: item.taxRate,
+        taxAmount: item.taxAmount,
+        productId: item.productId,
+        sku: item.sku
       }));
 
       const quoteData: Partial<Quote> = {
@@ -453,7 +461,7 @@ const QuoteForm: React.FC = () => {
       [field]: value
     };
 
-    if (field === 'quantity' || field === 'unitPrice') {
+    if (field === 'quantity' || field === 'unitPrice' || field === 'taxRate') {
       const item = newItems[index];
       const totalTTC = round2(item.quantity * item.unitPrice);
 

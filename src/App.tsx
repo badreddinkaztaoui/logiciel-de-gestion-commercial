@@ -4,7 +4,6 @@ import { useAuthStore } from './stores/authStore';
 import LoginPage from './components/auth/LoginPage';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import Layout from './components/Layout';
-import Dashboard from './components/Dashboard';
 import Orders from './components/Orders';
 import Quotes from './components/Quotes';
 import QuoteForm from './components/QuoteForm';
@@ -24,7 +23,6 @@ import { returnNoteService } from './services/returnNoteService';
 import { toast } from 'react-hot-toast';
 import { Toaster } from 'react-hot-toast';
 
-// Wrapper components for form routing
 const DeliveryNoteFormPage: React.FC = () => {
   const navigate = useNavigate();
 
@@ -102,10 +100,10 @@ const App: React.FC = () => {
           </>
         ) : (
           <>
-            <Route path="/login" element={<Navigate to="/" replace />} />
+            <Route path="/login" element={<Navigate to="/orders" replace />} />
             <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-              <Route index element={<Dashboard />} />
-              <Route path="dashboard" element={<Dashboard />} />
+              <Route index element={<Navigate to="/orders" replace />} />
+              <Route path="dashboard" element={<Navigate to="/orders" replace />} />
               <Route path="orders" element={<Orders />} />
               <Route path="quotes" element={<Quotes />} />
               <Route path="quotes/new" element={<QuoteForm />} />

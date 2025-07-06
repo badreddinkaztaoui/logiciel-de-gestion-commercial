@@ -15,8 +15,6 @@ import { returnNoteService } from '../services/returnNoteService';
 import { deliveryNoteService } from '../services/deliveryNoteService';
 import { invoiceService } from '../services/invoiceService';
 import { formatCurrency, formatDate } from '../utils/formatters';
-import { documentNumberingService } from '../services/documentNumberingService';
-
 interface ReturnNoteFormProps {
   editingNote?: ReturnNote | null;
   sourceInvoice?: Invoice | null;
@@ -87,57 +85,28 @@ const ReturnNoteForm: React.FC<ReturnNoteFormProps> = ({
         await initializeFromInvoice(effectiveSourceInvoice);
       } else {
         // Initialize new return note form
-        try {
-          const number = await documentNumberingService.generateNumber('RETURN');
-
-          setFormData({
-            id: undefined,
-            number,
-            date: new Date().toISOString().split('T')[0],
-            status: 'draft',
-            customer_id: undefined,
-            customer_data: undefined,
-            invoice_id: undefined,
-            delivery_note_id: undefined,
-            items: [{
-              id: crypto.randomUUID(),
-              description: '',
-              quantity: 1,
-              condition: 'new',
-              reason: '',
-              refundAmount: 0
-            }],
+        setFormData({
+          id: undefined,
+          number: '', // Will be generated on save
+          date: new Date().toISOString().split('T')[0],
+          status: 'draft',
+          customer_id: undefined,
+          customer_data: undefined,
+          invoice_id: undefined,
+          delivery_note_id: undefined,
+          items: [{
+            id: crypto.randomUUID(),
+            description: '',
+            quantity: 1,
+            condition: 'new',
             reason: '',
-            notes: '',
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          });
-        } catch (error) {
-          console.error('Error generating return note number:', error);
-          // Fallback initialization
-          setFormData({
-            id: undefined,
-            number: `BR-${Date.now().toString().slice(-6)}`,
-            date: new Date().toISOString().split('T')[0],
-            status: 'draft',
-            customer_id: undefined,
-            customer_data: undefined,
-            invoice_id: undefined,
-            delivery_note_id: undefined,
-            items: [{
-              id: crypto.randomUUID(),
-              description: '',
-              quantity: 1,
-              condition: 'new',
-              reason: '',
-              refundAmount: 0
-            }],
-            reason: '',
-            notes: '',
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          });
-        }
+            refundAmount: 0
+          }],
+          reason: '',
+          notes: '',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        });
       }
     } catch (error) {
       console.error('Error loading data:', error);
@@ -149,8 +118,6 @@ const ReturnNoteForm: React.FC<ReturnNoteFormProps> = ({
 
   const initializeFromInvoice = async (invoice: Invoice) => {
     try {
-      const number = await documentNumberingService.generateNumber('RETURN');
-
       // Convert invoice items to return note items
       const returnItems = invoice.items.map(item => ({
         id: crypto.randomUUID(),
@@ -164,7 +131,7 @@ const ReturnNoteForm: React.FC<ReturnNoteFormProps> = ({
 
       setFormData({
         id: undefined,
-        number,
+        number: '', // Will be generated on save
         date: new Date().toISOString().split('T')[0],
         status: 'draft',
         customer_id: undefined,
@@ -459,8 +426,8 @@ const ReturnNoteForm: React.FC<ReturnNoteFormProps> = ({
                 <input
                   type="text"
                   value={formData.number}
+                  placeholder="Sera généré automatiquement"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-gray-50"
-                  required
                   readOnly
                 />
               </div>

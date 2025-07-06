@@ -13,12 +13,15 @@ import {
   Users,
   Receipt,
   BookOpen,
-  LogOut
+  LogOut,
+  RefreshCw,
+  CheckCircle,
+  AlertCircle
 } from 'lucide-react';
 import { useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
-import { wooCommerceService } from '../services/woocommerce';
-import SyncStatus from './SyncStatus';
+import { syncService, SyncState } from '../services/syncService';
+import { toast } from 'react-hot-toast';
 
 const Layout: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -26,60 +29,104 @@ const Layout: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
 
-  const [syncStatus, setSyncStatus] = useState({
-    isConnected: true,
+  const [syncState, setSyncState] = useState<SyncState>({
+    isInitialSyncComplete: false,
+    lastSyncTime: null,
     isSyncing: false,
-    lastSyncTime: wooCommerceService.getLastSyncTime(),
-    newOrdersCount: 0,
-    onManualSync: async () => {
-      try {
-        setSyncStatus(prev => ({ ...prev, isSyncing: true }));
-        await wooCommerceService.performSync();
-        setSyncStatus(prev => ({
-          ...prev,
-          isSyncing: false,
-          lastSyncTime: wooCommerceService.getLastSyncTime(),
-          newOrdersCount: 0
-        }));
-      } catch (error) {
-        console.error('Manual sync failed:', error);
-        setSyncStatus(prev => ({ ...prev, isSyncing: false }));
-        throw error;
-      }
-    }
+    syncError: null
   });
 
+  const [showSyncNotification, setShowSyncNotification] = useState(false);
+
   useEffect(() => {
-    wooCommerceService.startRealTimeSync(2);
+    let mounted = true;
 
-    const handleSyncUpdate = (orders: any[], hasNewOrders: boolean) => {
-      setSyncStatus(prev => ({
-        ...prev,
-        lastSyncTime: wooCommerceService.getLastSyncTime(),
-        isConnected: true,
-        newOrdersCount: hasNewOrders ? prev.newOrdersCount + orders.length : prev.newOrdersCount
-      }));
-    };
-
-    wooCommerceService.onSyncUpdate(handleSyncUpdate);
-
-    const checkConnection = async () => {
+    const initializeSync = async () => {
       try {
-        await wooCommerceService.fetchOrders({ per_page: 1 });
-        setSyncStatus(prev => ({ ...prev, isConnected: true }));
-      } catch (err) {
-        setSyncStatus(prev => ({ ...prev, isConnected: false }));
+        // Load current sync state
+        const currentState = syncService.getSyncState();
+        if (mounted) {
+          setSyncState(currentState);
+        }
+
+        // Check if initial sync is needed
+        const shouldSync = await syncService.shouldPerformInitialSync();
+
+        if (shouldSync && mounted) {
+          setShowSyncNotification(true);
+
+          // Show initial sync notification
+          toast.loading('Synchronisation initiale avec WooCommerce en cours...', {
+            duration: 0,
+            id: 'initial-sync'
+          });
+
+          // Perform initial sync
+          const result = await syncService.performInitialSync();
+
+          if (mounted) {
+            toast.dismiss('initial-sync');
+
+            if (result.success) {
+              toast.success(
+                `Synchronisation réussie ! ${result.customersImported} clients et ${result.ordersImported} commandes importés.`,
+                { duration: 5000 }
+              );
+            } else {
+              toast.error(`Erreur de synchronisation: ${result.error}`, { duration: 5000 });
+            }
+
+            setShowSyncNotification(false);
+          }
+        }
+      } catch (error) {
+        if (mounted) {
+          console.error('Error during initial sync:', error);
+          toast.dismiss('initial-sync');
+          toast.error('Erreur lors de la synchronisation initiale', { duration: 5000 });
+          setShowSyncNotification(false);
+        }
       }
     };
-    checkConnection();
 
-    const intervalId = setInterval(checkConnection, 30000);
+    // Subscribe to sync state changes
+    const handleSyncStateChange = (newState: SyncState) => {
+      if (mounted) {
+        setSyncState(newState);
+      }
+    };
+
+    syncService.onSyncStateChange(handleSyncStateChange);
+    initializeSync();
 
     return () => {
-      wooCommerceService.stopRealTimeSync();
-      clearInterval(intervalId);
+      mounted = false;
+      syncService.offSyncStateChange(handleSyncStateChange);
     };
   }, []);
+
+  const handleManualSync = async () => {
+    try {
+      toast.loading('Synchronisation manuelle en cours...', {
+        duration: 0,
+        id: 'manual-sync'
+      });
+
+      const result = await syncService.performManualSync();
+
+      toast.dismiss('manual-sync');
+
+      if (result.success) {
+        const message = `Synchronisation réussie ! ${result.customersImported + result.customersUpdated} clients et ${result.ordersImported + result.ordersUpdated} commandes synchronisés.`;
+        toast.success(message, { duration: 5000 });
+      } else {
+        toast.error(`Erreur de synchronisation: ${result.error}`, { duration: 5000 });
+      }
+    } catch (error) {
+      toast.dismiss('manual-sync');
+      toast.error('Erreur lors de la synchronisation manuelle', { duration: 5000 });
+    }
+  };
 
   const getCurrentPage = () => {
     const path = location.pathname;
@@ -125,6 +172,19 @@ const Layout: React.FC = () => {
     setSidebarOpen(false);
   };
 
+  const formatSyncTime = (timestamp: string | null) => {
+    if (!timestamp) return 'Jamais';
+
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffMinutes = Math.floor((now.getTime() - date.getTime()) / (1000 * 60));
+
+    if (diffMinutes < 1) return 'À l\'instant';
+    if (diffMinutes < 60) return `Il y a ${diffMinutes} min`;
+    if (diffMinutes < 1440) return `Il y a ${Math.floor(diffMinutes / 60)} h`;
+    return date.toLocaleDateString('fr-FR');
+  };
+
   return (
     <div className="h-screen flex flex-col overflow-hidden">
       {/* Fixed Header */}
@@ -155,15 +215,36 @@ const Layout: React.FC = () => {
           </div>
 
           <div className="flex items-center space-x-4">
-            {/* <button className="hidden sm:flex items-center space-x-2 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
-              <Download className="w-4 h-4" />
-              <span>Exporter</span>
-            </button> */}
-            <SyncStatus
-              isConnected={syncStatus.isConnected}
-              isSyncing={syncStatus.isSyncing}
-              lastSyncTime={syncStatus.lastSyncTime}
-            />
+            {/* Sync Status and Controls */}
+            <div className="flex items-center space-x-2">
+              {/* Sync Status Indicator */}
+              <div className="flex items-center space-x-2 px-3 py-1 rounded-full bg-gray-100">
+                {syncState.isSyncing ? (
+                  <RefreshCw className="w-4 h-4 text-blue-600 animate-spin" />
+                ) : syncState.syncError ? (
+                  <AlertCircle className="w-4 h-4 text-red-600" />
+                ) : syncState.isInitialSyncComplete ? (
+                  <CheckCircle className="w-4 h-4 text-green-600" />
+                ) : (
+                  <RefreshCw className="w-4 h-4 text-gray-400" />
+                )}
+                <span className="text-xs text-gray-600">
+                  {syncState.isSyncing ? 'Sync...' : formatSyncTime(syncState.lastSyncTime)}
+                </span>
+              </div>
+
+              {/* Manual Sync Button */}
+              <button
+                onClick={handleManualSync}
+                disabled={syncState.isSyncing}
+                className="flex items-center space-x-1 px-3 py-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                title="Synchroniser manuellement avec WooCommerce"
+              >
+                <RefreshCw className={`w-4 h-4 ${syncState.isSyncing ? 'animate-spin' : ''}`} />
+                <span className="text-sm">Sync</span>
+              </button>
+            </div>
+
             <div className="flex items-center space-x-3">
               <div className="flex items-center space-x-2 p-2 rounded-lg">
                 <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
@@ -188,6 +269,46 @@ const Layout: React.FC = () => {
           </div>
         </div>
       </header>
+
+      {/* Initial Sync Notification */}
+      {showSyncNotification && (
+        <div className="flex-none bg-blue-50 border-b border-blue-200 px-6 py-3">
+          <div className="flex items-center space-x-3">
+            <RefreshCw className="w-5 h-5 text-blue-600 animate-spin" />
+            <div>
+              <p className="text-sm font-medium text-blue-900">
+                Synchronisation initiale avec WooCommerce en cours...
+              </p>
+              <p className="text-xs text-blue-700">
+                Importation des commandes et clients, veuillez patienter.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Error Notification */}
+      {syncState.syncError && (
+        <div className="flex-none bg-red-50 border-b border-red-200 px-6 py-3">
+          <div className="flex items-center space-x-3">
+            <AlertCircle className="w-5 h-5 text-red-600" />
+            <div>
+              <p className="text-sm font-medium text-red-900">
+                Erreur de synchronisation WooCommerce
+              </p>
+              <p className="text-xs text-red-700">
+                {syncState.syncError}
+              </p>
+            </div>
+            <button
+              onClick={handleManualSync}
+              className="text-sm text-red-600 hover:text-red-800 underline"
+            >
+              Réessayer
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Sidebar */}
       <div className="flex flex-1 overflow-hidden">
@@ -246,7 +367,7 @@ const Layout: React.FC = () => {
         {/* Main Content */}
         <main className={`flex-1 overflow-hidden bg-gray-50`}>
           <div className="h-full">
-            <Outlet context={{ syncStatus }} />
+            <Outlet context={{ syncState, handleManualSync }} />
           </div>
         </main>
       </div>

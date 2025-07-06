@@ -15,15 +15,23 @@ import {
 import { orderService } from '../services/orderService';
 import { WooCommerceOrder } from '../types';
 import { formatCurrency, formatDate } from '../utils/formatters';
+import { SyncState } from '../services/syncService';
 
-interface LayoutContext {
-  syncStatus: {
-    isConnected: boolean;
-    isSyncing: boolean;
-    lastSyncTime: string | null;
-    newOrdersCount: number;
-    onManualSync: () => Promise<void>;
-  };
+interface OutletContext {
+  syncState: SyncState;
+  handleManualSync: () => Promise<void>;
+}
+
+interface OrderStats {
+  total: number;
+  pending: number;
+  onHold: number;
+  processing: number;
+  completed: number;
+  cancelled: number;
+  refunded: number;
+  totalValue: number;
+  avgOrderValue: number;
 }
 
 const OrderRowSkeleton: React.FC = () => (
@@ -80,31 +88,35 @@ const Orders: React.FC = () => {
   const [hasMore, setHasMore] = useState(true);
   const [page, setPage] = useState(1);
   const [_, setTotalCount] = useState<number>(0);
-  const [stats, setStats] = useState({
+  const [stats, setStats] = useState<OrderStats>({
     total: 0,
     pending: 0,
+    onHold: 0,
     processing: 0,
     completed: 0,
     cancelled: 0,
+    refunded: 0,
     totalValue: 0,
     avgOrderValue: 0
   });
-  const [isLoadingMore, __] = useState(false);
-  const [isSyncing, ___] = useState(false);
   const [syncLoading, setSyncLoading] = useState(false);
 
-  const observer = useRef<IntersectionObserver>();
+  const observer = useRef<IntersectionObserver | null>(null);
+  const lastSyncTimeRef = useRef<string | null>(null);
   const navigate = useNavigate();
   const location = useLocation();
-  const { syncStatus } = useOutletContext<LayoutContext>();
+  const context = useOutletContext<OutletContext>();
+  const { syncState, handleManualSync } = context || {};
 
   const updateStats = useCallback((ordersData: WooCommerceOrder[]) => {
-    const orderStats = {
+    const orderStats: OrderStats = {
       total: ordersData.length,
-      pending: ordersData.filter(o => o.status === 'on-hold').length,
+      pending: ordersData.filter(o => o.status === 'pending').length,
+      onHold: ordersData.filter(o => o.status === 'on-hold').length,
       processing: ordersData.filter(o => o.status === 'processing').length,
       completed: ordersData.filter(o => o.status === 'completed').length,
       cancelled: ordersData.filter(o => o.status === 'cancelled').length,
+      refunded: ordersData.filter(o => o.status === 'refunded').length,
       totalValue: ordersData.reduce((sum, o) => sum + parseFloat(o.total || '0'), 0),
       avgOrderValue: ordersData.length > 0 ?
         ordersData.reduce((sum, o) => sum + parseFloat(o.total || '0'), 0) / ordersData.length : 0
@@ -113,10 +125,12 @@ const Orders: React.FC = () => {
   }, []);
 
   const applyFilters = useCallback(() => {
+    console.log('applyFilters called with allOrders:', allOrders.length);
     let filtered = [...allOrders];
 
     if (statusFilter !== 'all') {
       filtered = filtered.filter(order => order.status === statusFilter);
+      console.log('After status filter:', filtered.length);
     }
 
     if (dateFilter !== 'all') {
@@ -142,6 +156,7 @@ const Orders: React.FC = () => {
             return true;
         }
       });
+      console.log('After date filter:', filtered.length);
     }
 
     if (searchTerm) {
@@ -152,30 +167,59 @@ const Orders: React.FC = () => {
         (order.billing?.first_name?.toLowerCase() + ' ' + order.billing?.last_name?.toLowerCase()).includes(searchLower) ||
         order.billing?.email?.toLowerCase().includes(searchLower)
       );
+      console.log('After search filter:', filtered.length);
     }
 
+    console.log('Final filtered orders:', filtered.length);
     setFilteredOrders(filtered);
     setHasMore(filtered.length > 20);
     setTotalCount(filtered.length);
   }, [allOrders, statusFilter, dateFilter, searchTerm]);
 
   useEffect(() => {
+    console.log('useEffect: applyFilters triggered, allOrders.length:', allOrders.length);
     applyFilters();
   }, [applyFilters]);
 
   // Update stats whenever allOrders changes
   useEffect(() => {
+    console.log('useEffect: updateStats triggered, allOrders.length:', allOrders.length);
     updateStats(allOrders);
   }, [allOrders, updateStats]);
 
-  const loadOrders = async (shouldSync = true) => {
-    try {
-      if (!loading) setLoading(true);
+  useEffect(() => {
+    // Load orders from database without syncing since Layout handles initial sync
+    loadOrders(false);
+  }, [location.pathname]);
 
-      if (shouldSync && syncStatus.isConnected && !syncStatus.isSyncing) {
+  // Reload orders when sync completes (only once per sync)
+  useEffect(() => {
+    if (syncState &&
+        !syncState.isSyncing &&
+        syncState.lastSyncTime &&
+        syncState.lastSyncTime !== lastSyncTimeRef.current) {
+
+      console.log('Sync completed, reloading orders...', syncState.lastSyncTime);
+      lastSyncTimeRef.current = syncState.lastSyncTime;
+
+      // Small delay to ensure database is updated
+      setTimeout(() => {
+        loadOrders(false);
+      }, 500);
+    }
+  }, [syncState?.isSyncing, syncState?.lastSyncTime]);
+
+  const loadOrders = async (shouldSync = false) => {
+    try {
+      console.log('loadOrders called with shouldSync:', shouldSync);
+      setLoading(true);
+
+      // Only sync if explicitly requested (manual sync button)
+      if (shouldSync && syncState && !syncState.isSyncing && handleManualSync) {
+        console.log('Starting sync from loadOrders...');
         setSyncLoading(true);
         try {
-          await syncStatus.onManualSync();
+          await handleManualSync();
         } catch (error) {
           console.error('Error syncing orders:', error);
         } finally {
@@ -183,9 +227,16 @@ const Orders: React.FC = () => {
         }
       }
 
-      const response = await orderService.getOrders(1, 100); // Get more orders initially
+      // Load orders from database
+      console.log('Loading orders from database...');
+      const response = await orderService.getOrders(1, 1000); // Get more orders
+      console.log('Loaded orders from database:', response.data.length);
+
+      if (response.data.length > 0) {
+        console.log('First order:', response.data[0]);
+      }
+
       setAllOrders(response.data);
-      applyFilters(); // This will set filteredOrders
     } catch (error) {
       console.error('Error loading orders:', error);
     } finally {
@@ -193,12 +244,19 @@ const Orders: React.FC = () => {
     }
   };
 
-  const handleManualSync = async () => {
-    if (syncStatus.isSyncing || isSyncing) return;
+  const handleManualSyncClick = async () => {
+    if (!handleManualSync || (syncState && syncState.isSyncing)) return;
 
     setSyncLoading(true);
     try {
-      await syncStatus.onManualSync();
+      console.log('Starting manual sync...');
+      await handleManualSync();
+      console.log('Manual sync completed, reloading orders...');
+
+      // Wait a bit for the database to be updated
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Reload orders without triggering another sync
       await loadOrders(false);
     } catch (error) {
       console.error('Error during manual sync:', error);
@@ -239,7 +297,7 @@ const Orders: React.FC = () => {
 
   // Update infinite scroll
   const lastOrderElementRef = useCallback((node: HTMLElement | null) => {
-    if (loading || isLoadingMore) return;
+    if (loading) return;
     if (observer.current) observer.current.disconnect();
     observer.current = new IntersectionObserver(entries => {
       if (entries[0].isIntersecting && hasMore) {
@@ -247,11 +305,7 @@ const Orders: React.FC = () => {
       }
     });
     if (node) observer.current.observe(node);
-  }, [loading, hasMore, isLoadingMore]);
-
-  useEffect(() => {
-    loadOrders();
-  }, [location.pathname]);
+  }, [loading, hasMore]);
 
   const handleCreateInvoiceFromOrder = (order: WooCommerceOrder) => {
     navigate('/invoices/create', { state: { sourceOrder: order } });
@@ -259,25 +313,45 @@ const Orders: React.FC = () => {
 
   const getStatusColor = (status: string) => {
     switch (status) {
+      case 'pending': return 'bg-orange-100 text-orange-800';
       case 'on-hold': return 'bg-yellow-100 text-yellow-800';
       case 'processing': return 'bg-blue-100 text-blue-800';
       case 'completed': return 'bg-green-100 text-green-800';
       case 'cancelled': return 'bg-red-100 text-red-800';
       case 'refunded': return 'bg-purple-100 text-purple-800';
-      case 'failed': return 'bg-red-100 text-red-800';
       default: return 'bg-gray-100 text-gray-800';
     }
   };
 
   const getStatusLabel = (status: string) => {
     switch (status) {
+      case 'pending': return 'En attente de paiement';
       case 'on-hold': return 'En attente';
       case 'processing': return 'En cours';
       case 'completed': return 'Terminée';
       case 'cancelled': return 'Annulée';
       case 'refunded': return 'Remboursée';
-      case 'failed': return 'Échouée';
       default: return status;
+    }
+  };
+
+  const handleResetSync = async () => {
+    if (confirm('Reset sync state? This will trigger a fresh sync next time.')) {
+      try {
+        // Import syncService to reset state
+        const { syncService } = await import('../services/syncService');
+        await syncService.resetSyncState();
+        console.log('Sync state reset');
+
+        // Clear local data
+        setAllOrders([]);
+        setFilteredOrders([]);
+
+        // Reload the page to trigger fresh sync
+        window.location.reload();
+      } catch (error) {
+        console.error('Error resetting sync state:', error);
+      }
     }
   };
 
@@ -350,24 +424,31 @@ const Orders: React.FC = () => {
 
           <div className="flex items-center space-x-3">
             <button
-              onClick={handleManualSync}
-              disabled={syncStatus.isSyncing || isSyncing || syncLoading}
+              onClick={handleResetSync}
+              className="flex items-center space-x-2 px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+            >
+              <span>Reset Sync</span>
+            </button>
+
+            <button
+              onClick={handleManualSyncClick}
+              disabled={!handleManualSync || (syncState && syncState.isSyncing) || syncLoading}
               className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
             >
-              <RefreshCw className={`w-4 h-4 ${(syncStatus.isSyncing || isSyncing || syncLoading) ? 'animate-spin' : ''}`} />
-              <span>{(syncStatus.isSyncing || isSyncing || syncLoading) ? 'Synchronisation...' : 'Synchroniser'}</span>
+              <RefreshCw className={`w-4 h-4 ${((syncState && syncState.isSyncing) || syncLoading) ? 'animate-spin' : ''}`} />
+              <span>{((syncState && syncState.isSyncing) || syncLoading) ? 'Synchronisation...' : 'Synchroniser'}</span>
             </button>
           </div>
         </div>
 
         {/* Sync Status */}
-        {syncStatus.lastSyncTime && (
+        {syncState && syncState.lastSyncTime && (
           <div className="px-6">
             <div className="bg-green-50 border border-green-200 rounded-lg p-3">
               <div className="flex items-center space-x-2">
                 <CheckCircle className="w-4 h-4 text-green-600" />
                 <span className="text-sm text-green-800">
-                  Dernière synchronisation: {new Date(syncStatus.lastSyncTime).toLocaleString()}
+                  Dernière synchronisation: {new Date(syncState.lastSyncTime).toLocaleString('fr-FR')}
                 </span>
               </div>
             </div>
@@ -440,7 +521,7 @@ const Orders: React.FC = () => {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-xs font-medium text-gray-600">En attente</p>
-                      <p className="text-lg font-bold text-yellow-600">{stats.pending}</p>
+                      <p className="text-lg font-bold text-yellow-600">{stats.onHold}</p>
                     </div>
                     <div className="p-2 bg-yellow-100 rounded-full">
                       <Clock className="w-4 h-4 text-yellow-600" />
@@ -485,6 +566,7 @@ const Orders: React.FC = () => {
                 className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               >
                 <option value="all">Tous les statuts</option>
+                <option value="pending">En attente de paiement</option>
                 <option value="on-hold">En attente</option>
                 <option value="processing">En cours</option>
                 <option value="completed">Terminées</option>

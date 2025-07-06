@@ -421,7 +421,7 @@ const InvoiceForm: React.FC = () => {
       [field]: value
     };
 
-    if (field === 'quantity' || field === 'unitPrice') {
+    if (field === 'quantity' || field === 'unitPrice' || field === 'taxRate') {
       const item = newItems[index];
       const totalTTC = round2(item.quantity * item.unitPrice);
 
@@ -540,26 +540,60 @@ const InvoiceForm: React.FC = () => {
     setProductLoadingStatus('Initialisation à partir du devis...');
 
     try {
-      // Convert quote items to invoice items format
-      const invoiceItems = quote.items.map(item => ({
-        id: crypto.randomUUID(),
-        description: item.description,
-        quantity: item.quantity,
-        unitPrice: item.unitPrice,
-        unitPriceHT: item.unitPrice, // For now, assuming prices are HT
-        total: item.total,
-        totalHT: item.total,
-        taxRate: 20, // Default tax rate
-        taxAmount: round2(item.total * 0.2),
-        sku: `ITEM-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-      }));
+      // Check if this is an old quote without tax information
+      const hasOldFormat = quote.items.some(item =>
+        !item.taxRate && !item.taxAmount && !item.unitPriceHT
+      );
 
-      // Calculate totals using the same logic as for orders
+      if (hasOldFormat) {
+        setProductLoadingStatus('Application du taux TVA standard (20%) pour ancien devis...');
+      }
+
+      const invoiceItems = quote.items.map((item) => {
+        let taxRate = item.taxRate || 0;
+        let taxAmount = item.taxAmount || 0;
+        let unitPriceHT = item.unitPriceHT || item.unitPrice;
+        let totalHT = item.totalHT || item.total;
+
+        if (!item.taxRate && !item.taxAmount && !item.unitPriceHT) {
+          taxRate = 20;
+          unitPriceHT = round2(item.unitPrice / 1.2);
+          totalHT = round2(unitPriceHT * item.quantity);
+          taxAmount = round2(totalHT * 0.2);
+        } else if (taxRate > 0 && (!item.unitPriceHT || !item.totalHT)) {
+          const taxRate100 = taxRate / 100;
+          unitPriceHT = round2(item.unitPrice / (1 + taxRate100));
+          totalHT = round2(unitPriceHT * item.quantity);
+          if (!taxAmount) {
+            taxAmount = round2(totalHT * taxRate100);
+          }
+        }
+
+        return {
+          id: crypto.randomUUID(),
+          description: item.description,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          unitPriceHT: unitPriceHT,
+          total: item.total,
+          totalHT: totalHT,
+          taxRate: taxRate,
+          taxAmount: taxAmount,
+          sku: item.sku || `ITEM-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          productId: item.productId
+        };
+      });
+
       const totals = calculateTotalsFromItems(invoiceItems);
 
-      // Generate due date (30 days from today)
       const dueDate = new Date();
       dueDate.setDate(dueDate.getDate() + 30);
+
+      let notes = `Facture générée à partir du devis ${quote.number}. ${quote.notes || ''}`.trim();
+
+      if (hasOldFormat) {
+        notes += '\n\nNote: Taux TVA 20% appliqué par défaut pour ce devis (créé avant la mise à jour). Vous pouvez modifier les taux TVA si nécessaire.';
+      }
 
       const invoiceData = {
         id: crypto.randomUUID(),
@@ -578,7 +612,7 @@ const InvoiceForm: React.FC = () => {
         },
         items: invoiceItems,
         ...totals,
-        notes: `Facture générée à partir du devis ${quote.number}. ${quote.notes || ''}`.trim()
+        notes: notes
       };
 
       setFormData(invoiceData);

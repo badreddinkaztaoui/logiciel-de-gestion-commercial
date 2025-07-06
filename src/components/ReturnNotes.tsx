@@ -3,7 +3,6 @@ import {
   Plus,
   Edit,
   Eye,
-  Trash2,
   Search,
   RotateCcw,
   CheckCircle,
@@ -102,14 +101,14 @@ const ReturnNotes: React.FC = () => {
     setEditingNote(null);
   };
 
-  const handleDeleteNote = async (noteId: string) => {
-    if (window.confirm('Êtes-vous sûr de vouloir supprimer ce bon de retour ?')) {
+  const handleCancelNote = async (noteId: string) => {
+    if (window.confirm('Êtes-vous sûr de vouloir annuler ce bon de retour ?')) {
       try {
-        await returnNoteService.deleteReturnNote(noteId);
+        await returnNoteService.cancelReturnNote(noteId);
         await loadData();
       } catch (error) {
-        console.error('Error deleting note:', error);
-        alert('Erreur lors de la suppression du bon de retour');
+        console.error('Error cancelling note:', error);
+        alert('Erreur lors de l\'annulation du bon de retour');
       }
     }
   };
@@ -329,23 +328,21 @@ const ReturnNotes: React.FC = () => {
                           >
                             <Eye className="w-4 h-4" />
                           </button>
-                          {note.status === 'draft' && (
-                            <>
-                              <button
-                                onClick={() => handleEditNote(note)}
-                                className="text-green-600 hover:text-green-900 p-1 hover:bg-green-50 rounded"
-                                title="Modifier"
-                              >
-                                <Edit className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={() => handleDeleteNote(note.id)}
-                                className="text-red-600 hover:text-red-900 p-1 hover:bg-red-50 rounded"
-                                title="Supprimer"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </>
+                          <button
+                            onClick={() => handleEditNote(note)}
+                            className="text-green-600 hover:text-green-900 p-1 hover:bg-green-50 rounded"
+                            title="Modifier"
+                          >
+                            <Edit className="w-4 h-4" />
+                          </button>
+                          {note.status !== 'cancelled' && (
+                            <button
+                              onClick={() => handleCancelNote(note.id)}
+                              className="text-red-600 hover:text-red-900 p-1 hover:bg-red-50 rounded"
+                              title="Annuler"
+                            >
+                              <XCircle className="w-4 h-4" />
+                            </button>
                           )}
                         </div>
                       </td>
@@ -473,13 +470,18 @@ const ReturnNotes: React.FC = () => {
                     >
                       Modifier
                     </button>
-                    <button
-                      onClick={() => handleDeleteNote(selectedNote.id)}
-                      className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-                    >
-                      Supprimer
-                    </button>
                   </>
+                )}
+                {selectedNote.status !== 'cancelled' && selectedNote.status !== 'draft' && (
+                  <button
+                    onClick={() => {
+                      handleCancelNote(selectedNote.id);
+                      setSelectedNote(null);
+                    }}
+                    className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors"
+                  >
+                    Annuler
+                  </button>
                 )}
                 <button
                   onClick={() => setSelectedNote(null)}
