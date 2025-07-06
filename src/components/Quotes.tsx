@@ -12,6 +12,7 @@ import {
   TrendingUp,
   Loader2,
   XCircle,
+  Check,
 } from 'lucide-react';
 import { quoteService } from '../services/quoteService';
 import { Quote } from '../types';
@@ -97,8 +98,6 @@ const Quotes: React.FC = () => {
       }
     }
   };
-
-
 
   const handleAcceptQuote = async (quoteId: string) => {
     try {
@@ -390,6 +389,15 @@ const Quotes: React.FC = () => {
                         >
                           <Eye className="w-4 h-4" />
                         </button>
+                        {quote.status === 'sent' && (
+                          <button
+                            onClick={() => handleAcceptQuote(quote.id)}
+                            className="text-green-600 hover:text-green-900"
+                            title="Accepter"
+                          >
+                            <Check className="w-4 h-4" />
+                          </button>
+                        )}
                         <button
                           onClick={() => handleCancelQuote(quote.id)}
                           className="text-red-600 hover:text-red-900"

@@ -242,6 +242,30 @@ class InvoiceService {
     }
   }
 
+  async markInvoiceAsPaid(invoiceId: string): Promise<Invoice> {
+    try {
+      const invoice = await this.getInvoiceById(invoiceId);
+      if (!invoice) {
+        throw new Error('Invoice not found');
+      }
+
+      const updatedInvoice: Invoice = {
+        ...invoice,
+        status: 'paid',
+        paymentDate: new Date().toISOString().split('T')[0],
+        notes: (invoice.notes ? invoice.notes + '\n' : '') +
+          `Facture marquée comme payée le ${new Date().toLocaleDateString()}`
+      };
+
+      const result = await this.saveInvoice(updatedInvoice);
+      console.log(`Successfully marked invoice ${invoiceId} as paid`);
+      return result;
+    } catch (error) {
+      console.error('Error marking invoice as paid:', error);
+      throw error;
+    }
+  }
+
   async syncWithWooCommerce(orderId: number, woocommerceStatus: string): Promise<void> {
     try {
       const invoice = await this.getInvoiceByOrderId(orderId);

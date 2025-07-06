@@ -13,11 +13,11 @@ import {
   Loader2,
   Truck,
   RefreshCw,
-  RotateCcw
+  RotateCcw,
+  Check
 } from 'lucide-react';
 import { toast, Toaster } from 'react-hot-toast';
 import { invoiceService } from '../services/invoiceService';
-import { wooCommerceService } from '../services/woocommerce';
 import { Invoice } from '../types/index';
 import { formatCurrency, formatDate } from '../utils/formatters';
 
@@ -80,57 +80,27 @@ const Invoices: React.FC = () => {
     navigate(`/invoices/edit/${invoice.id}`);
   };
 
-  const handleCancelInvoice = async (id: string) => {
-    if (confirm('Êtes-vous sûr de vouloir annuler cette facture ? Les articles seront retournés au stock WooCommerce.')) {
+  const handleCancelInvoice = async (invoiceId: string) => {
+    if (window.confirm('Êtes-vous sûr de vouloir annuler cette facture ?')) {
       try {
-        const invoice = await invoiceService.getInvoiceById(id);
-        if (!invoice) {
-          toast.error('Facture introuvable');
-          return;
-        }
-
-        // Cancel the invoice
-        const updatedInvoice = await invoiceService.cancelInvoice(id);
-
-        // Return items to WooCommerce stock if there's a linked order
-        if (invoice.orderId && invoice.items.length > 0) {
-          let stockUpdatesCount = 0;
-
-          for (const item of invoice.items) {
-            if (item.productId) {
-              try {
-                await wooCommerceService.increaseProductStock(item.productId, item.quantity);
-                stockUpdatesCount++;
-              } catch (error) {
-                console.error(`Error returning stock for product ${item.productId}:`, error);
-                // Continue with other items even if one fails
-              }
-            }
-          }
-
-          // Add note to WooCommerce order
-          if (stockUpdatesCount > 0) {
-            try {
-              await wooCommerceService.addOrderNote(
-                invoice.orderId,
-                `Facture ${invoice.number} annulée - ${stockUpdatesCount} article(s) retourné(s) au stock`,
-                true
-              );
-            } catch (error) {
-              console.error('Error adding order note:', error);
-            }
-          }
-
-          toast.success(`Facture annulée avec succès. ${stockUpdatesCount} article(s) retourné(s) au stock WooCommerce.`);
-        } else {
-          toast.success('Facture annulée avec succès');
-        }
-
-        setInvoices(invoices.map(inv => inv.id === id ? updatedInvoice : inv));
-      } catch (error: any) {
+        await invoiceService.cancelInvoice(invoiceId);
+        toast.success('Facture annulée avec succès');
+        await loadInvoices();
+      } catch (error) {
         console.error('Error cancelling invoice:', error);
-        toast.error(error.message || 'Erreur lors de l\'annulation de la facture');
+        toast.error('Erreur lors de l\'annulation de la facture');
       }
+    }
+  };
+
+  const handleAcceptInvoice = async (invoiceId: string) => {
+    try {
+      await invoiceService.markInvoiceAsPaid(invoiceId);
+      toast.success('Facture marquée comme payée');
+      await loadInvoices();
+    } catch (error) {
+      console.error('Error marking invoice as paid:', error);
+      toast.error('Erreur lors de la validation de la facture');
     }
   };
 
@@ -166,12 +136,12 @@ const Invoices: React.FC = () => {
     }
   };
 
-  const canCreateDeliveryNote = (invoice: Invoice) => {
-    return invoice.status !== 'cancelled';
+  const canCreateDeliveryNote = (invoice: Invoice): boolean => {
+    return invoice.status === 'paid' || invoice.status === 'sent';
   };
 
   const canCreateReturnNote = (invoice: Invoice) => {
-    return invoice.status === 'paid' || invoice.status === 'cancelled';
+    return invoice.status === 'cancelled';
   };
 
   const canCancelInvoice = (invoice: Invoice) => {
@@ -411,6 +381,15 @@ const Invoices: React.FC = () => {
                         >
                           <Eye className="w-4 h-4" />
                         </button>
+                        {invoice.status === 'sent' && (
+                          <button
+                            onClick={() => handleAcceptInvoice(invoice.id)}
+                            className="text-green-600 hover:text-green-900"
+                            title="Marquer comme payée"
+                          >
+                            <Check className="w-4 h-4" />
+                          </button>
+                        )}
                         {canCreateDeliveryNote(invoice) && (
                           <button
                             onClick={() => handleCreateDeliveryNote(invoice.id)}

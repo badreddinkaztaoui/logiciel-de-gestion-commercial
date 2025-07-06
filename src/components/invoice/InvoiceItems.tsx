@@ -27,10 +27,6 @@ interface InvoiceItemsProps {
   errors: { [key: string]: string };
 }
 
-const round2 = (num: number): number => {
-  return Math.round((num + Number.EPSILON) * 100) / 100;
-};
-
 const InvoiceItems: React.FC<InvoiceItemsProps> = ({
   items,
   sourceOrder,
@@ -40,8 +36,6 @@ const InvoiceItems: React.FC<InvoiceItemsProps> = ({
   onShowProductSearch,
   errors
 }) => {
-
-  console.log('🔍 InvoiceItems received items:', items);
 
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
