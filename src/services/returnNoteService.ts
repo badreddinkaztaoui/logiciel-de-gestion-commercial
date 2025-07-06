@@ -78,63 +78,56 @@ class ReturnNoteService {
     try {
       await this.ensureAuthenticated();
 
-      // Only generate number if not already provided
-      let number = returnNote.number;
-      if (!number) {
+      // Generate number if not provided (for new notes)
+      if (!returnNote.number) {
         try {
-          number = await documentNumberingService.generateNumber('RETURN');
+          returnNote.number = await documentNumberingService.generateNumber('RETURN');
         } catch (error) {
           console.error('Error generating return note number:', error);
-          // Fallback number generation
-          const timestamp = Date.now().toString().slice(-6);
-          number = `BR-${timestamp}`;
+          // Enhanced fallback number generation with microsecond precision and random
+          const now = new Date();
+          const timestamp = now.getTime().toString(); // Full timestamp with milliseconds
+          const microseconds = (performance.now() % 1000).toFixed(0).padStart(3, '0');
+          const random = Math.floor(Math.random() * 100000).toString().padStart(5, '0');
+          returnNote.number = `BR-${timestamp}-${microseconds}-${random}`;
         }
       }
 
-      // Retry logic for ID conflicts
-      let maxRetries = 3;
-      let lastError;
+      // Ensure we have a unique ID
+      const id = returnNote.id || crypto.randomUUID();
 
-      for (let attempt = 0; attempt < maxRetries; attempt++) {
-        try {
-          // Always generate a fresh UUID for each create attempt to avoid duplicates
-          const id = crypto.randomUUID();
+      const insertData = {
+        ...returnNote,
+        id,
+        status: returnNote.status || 'draft',
+        created_at: returnNote.created_at || new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
 
-          const insertData = {
-            ...returnNote,
-            id,
-            number,
-            status: returnNote.status || 'draft',
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          };
+      const { data, error } = await supabase
+        .from(this.TABLE_NAME)
+        .insert([insertData])
+        .select()
+        .single();
 
-          const { data, error } = await supabase
-            .from(this.TABLE_NAME)
-            .insert([insertData])
-            .select()
-            .single();
+      if (error) {
+        console.error('Error creating return note:', error);
 
-          if (error) {
-            // If it's a duplicate key error, retry with a new ID
-            if (error.code === '23505' && attempt < maxRetries - 1) {
-              console.log(`Duplicate key error on attempt ${attempt + 1}, retrying...`);
-              lastError = error;
-              continue;
-            }
-            throw error;
-          }
-
-          return this.mapDatabaseToReturnNote(data);
-        } catch (error) {
-          lastError = error;
-          if (attempt === maxRetries - 1) {
-            throw error;
+        // Provide more specific error messages
+        if (error.code === '23505') {
+          if (error.message.includes('return_notes_number_key')) {
+            throw new Error('Un bon de retour avec ce numéro existe déjà. Veuillez réessayer.');
+          } else if (error.message.includes('return_notes_pkey')) {
+            throw new Error('Un bon de retour avec cet identifiant existe déjà. Veuillez réessayer.');
+          } else {
+            throw new Error('Cette donnée existe déjà dans le système. Veuillez réessayer.');
           }
         }
+
+        throw error;
       }
 
-      throw lastError;
+      return this.mapDatabaseToReturnNote(data);
     } catch (error) {
       console.error('Error creating return note:', error);
       throw error;
@@ -269,14 +262,108 @@ class ReturnNoteService {
   async processReturnNote(id: string): Promise<void> {
     try {
       const returnNote = await this.getReturnNote(id);
-      if (returnNote) {
-        await this.updateReturnNote(id, {
-          status: 'processed'
-        });
+      if (!returnNote) {
+        throw new Error('Return note not found');
       }
+
+      // Update WooCommerce stock for returned products
+      await this.updateWooCommerceStock(returnNote);
+
+      // Process WooCommerce refund if applicable
+      await this.processWooCommerceRefund(returnNote);
+
+      // Update return note status
+      await this.updateReturnNote(id, {
+        status: 'processed'
+      });
     } catch (error) {
       console.error('Error processing return note:', error);
       throw error;
+    }
+  }
+
+  private async updateWooCommerceStock(returnNote: ReturnNote): Promise<void> {
+    try {
+      // Import WooCommerce service dynamically to avoid circular dependencies
+      const { wooCommerceService } = await import('./woocommerce');
+
+      if (!returnNote.items || returnNote.items.length === 0) {
+        return;
+      }
+
+      const stockUpdateResults = [];
+
+      for (const item of returnNote.items) {
+        // Only update stock for products that are in good condition
+        if (item.productId && (item.condition === 'new' || item.condition === 'used')) {
+          try {
+            console.log(`Updating stock for product ${item.productId}: +${item.quantity}`);
+            const result = await wooCommerceService.increaseProductStock(item.productId, item.quantity);
+            stockUpdateResults.push({
+              productId: item.productId,
+              quantity: item.quantity,
+              newStock: result.stock_quantity,
+              success: true
+            });
+          } catch (error) {
+            console.error(`Error updating stock for product ${item.productId}:`, error);
+            stockUpdateResults.push({
+              productId: item.productId,
+              quantity: item.quantity,
+              success: false,
+              error: error instanceof Error ? error.message : 'Unknown error'
+            });
+          }
+        }
+      }
+
+      console.log('Stock update results:', stockUpdateResults);
+    } catch (error) {
+      console.error('Error updating WooCommerce stock:', error);
+      // Don't throw here - stock update failure shouldn't prevent return processing
+    }
+  }
+
+  private async processWooCommerceRefund(returnNote: ReturnNote): Promise<void> {
+    try {
+      // Import services dynamically to avoid circular dependencies
+      const { wooCommerceService } = await import('./woocommerce');
+
+      // Only process refund if there's a linked invoice and items with refund amounts
+      if (!returnNote.invoice_id || !returnNote.items || returnNote.items.length === 0) {
+        return;
+      }
+
+      // Get the original order ID from the invoice
+      const { invoiceService } = await import('./invoiceService');
+      const invoice = await invoiceService.getInvoiceById(returnNote.invoice_id);
+
+      if (!invoice || !invoice.orderId) {
+        console.log('No WooCommerce order found for this return note');
+        return;
+      }
+
+      // Calculate total refund amount
+      const totalRefundAmount = returnNote.items.reduce((sum, item) => sum + (item.refundAmount || 0), 0);
+
+      if (totalRefundAmount <= 0) {
+        console.log('No refund amount specified for return note');
+        return;
+      }
+
+      // Process the return in WooCommerce
+      const refundResult = await wooCommerceService.processReturn(
+        invoice.orderId,
+        returnNote.items,
+        totalRefundAmount,
+        returnNote.reason || 'Product return',
+        false // Don't update order status to refunded automatically
+      );
+
+      console.log('WooCommerce refund processed:', refundResult);
+    } catch (error) {
+      console.error('Error processing WooCommerce refund:', error);
+      // Don't throw here - refund failure shouldn't prevent return processing
     }
   }
 

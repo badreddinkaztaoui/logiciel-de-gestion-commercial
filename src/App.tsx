@@ -19,7 +19,6 @@ import Suppliers from './components/Suppliers';
 import Customers from './components/Customers';
 import SalesJournal from './components/SalesJournal';
 import { deliveryNoteService } from './services/deliveryNoteService';
-import { returnNoteService } from './services/returnNoteService';
 import { toast } from 'react-hot-toast';
 import { Toaster } from 'react-hot-toast';
 
@@ -47,15 +46,9 @@ const DeliveryNoteFormPage: React.FC = () => {
 const ReturnNoteFormPage: React.FC = () => {
   const navigate = useNavigate();
 
-  const handleSave = async (note: any) => {
-    try {
-      await returnNoteService.createReturnNote(note);
-      toast.success('Bon de retour créé avec succès');
-      navigate('/return-notes');
-    } catch (error) {
-      console.error('Error saving return note:', error);
-      toast.error('Erreur lors de la sauvegarde du bon de retour');
-    }
+  const handleSave = () => {
+    toast.success('Bon de retour créé avec succès');
+    navigate('/return-notes');
   };
 
   const handleCancel = () => {

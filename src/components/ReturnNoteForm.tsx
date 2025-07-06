@@ -280,11 +280,14 @@ const ReturnNoteForm: React.FC<ReturnNoteFormProps> = ({
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (e?: React.FormEvent | React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+    }
 
     // Prevent double submission
     if (isSubmitting) {
+      console.log('Submission already in progress, ignoring...');
       return;
     }
 
@@ -292,16 +295,16 @@ const ReturnNoteForm: React.FC<ReturnNoteFormProps> = ({
       return;
     }
 
+    console.log('Starting return note submission...');
     setIsSubmitting(true);
+    setErrors({}); // Clear any previous errors
 
     try {
-      // For new notes, use undefined ID to let service generate it
-      // For editing, use the existing ID
-      const noteId = editingNote ? editingNote.id : undefined;
-
+      // For new notes, don't pass number or id - let service generate them
+      // For editing, use the existing ID and number
       const note: Partial<ReturnNote> = {
-        id: noteId,
-        number: formData.number!, // Use the number from form (pre-generated)
+        id: editingNote ? editingNote.id : undefined,
+        number: editingNote ? editingNote.number : undefined, // Let service generate for new notes
         date: formData.date!,
         status: formData.status!,
         customer_id: formData.customer_id,
@@ -315,22 +318,29 @@ const ReturnNoteForm: React.FC<ReturnNoteFormProps> = ({
         })),
         reason: formData.reason!,
         notes: formData.notes,
-        created_at: formData.created_at!,
+        created_at: editingNote ? editingNote.created_at : undefined,
         updated_at: new Date().toISOString()
       };
 
       let savedNote: ReturnNote;
       if (editingNote) {
+        console.log('Updating existing return note...');
         savedNote = await returnNoteService.updateReturnNote(editingNote.id, note);
       } else {
+        console.log('Creating new return note...');
         savedNote = await returnNoteService.createReturnNote(note);
       }
 
+      console.log('Return note saved successfully:', savedNote.number);
+      console.log('Calling onSave callback...');
       onSave(savedNote);
+      console.log('onSave callback completed');
     } catch (error) {
       console.error('Error saving note:', error);
-      alert('Erreur lors de la sauvegarde du bon de retour: ' + (error as Error).message);
+      const errorMessage = error instanceof Error ? error.message : 'Erreur inconnue';
+      setErrors({ general: `Erreur lors de la sauvegarde: ${errorMessage}` });
     } finally {
+      console.log('Setting isSubmitting to false');
       setIsSubmitting(false);
     }
   };
@@ -380,8 +390,8 @@ const ReturnNoteForm: React.FC<ReturnNoteFormProps> = ({
             </button>
             <div>
               <button
-                type="submit"
-                form="return-note-form"
+                type="button"
+                onClick={handleSubmit}
                 disabled={isSubmitting}
                 className="flex items-center space-x-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
               >
@@ -404,7 +414,7 @@ const ReturnNoteForm: React.FC<ReturnNoteFormProps> = ({
 
       {/* Content */}
       <div className="flex-1 overflow-auto p-6">
-        <form id="return-note-form" onSubmit={handleSubmit} className="max-w-6xl mx-auto space-y-6">
+        <form id="return-note-form" className="max-w-6xl mx-auto space-y-6">
           {errors.general && (
             <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-start space-x-3">
               <AlertTriangle className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" />

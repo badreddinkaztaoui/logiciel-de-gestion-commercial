@@ -80,19 +80,15 @@ const ReturnNotes: React.FC = () => {
     setShowForm(true);
   };
 
-  const handleSaveNote = async (note: ReturnNote) => {
+  const handleSaveNote = async (savedNote: ReturnNote) => {
     try {
-      if (note.id) {
-        await returnNoteService.updateReturnNote(note.id, note);
-      } else {
-        await returnNoteService.createReturnNote(note);
-      }
-      await loadData();
+      // The note is already saved by the form, just update UI state
+      await loadData(); // Reload to get fresh data
       setShowForm(false);
       setEditingNote(null);
     } catch (error) {
-      console.error('Error saving note:', error);
-      alert('Erreur lors de la sauvegarde du bon de retour');
+      console.error('Error handling saved note:', error);
+      alert('Erreur lors de la mise à jour de l\'affichage');
     }
   };
 
