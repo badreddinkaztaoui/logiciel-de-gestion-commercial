@@ -5,9 +5,7 @@ import {
   Save,
   ArrowLeft,
   Search,
-  Percent,
   Package,
-  AlertCircle
 } from 'lucide-react';
 import { PurchaseOrder, Supplier } from '../types';
 import { purchaseOrderService } from '../services/purchaseOrderService';
@@ -27,23 +25,23 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
   onSave,
   onCancel
 }) => {
-  const [formData, setFormData] = useState<Partial<PurchaseOrder>>({
-    id: '',
-    number: '',
-    date: new Date().toISOString().split('T')[0],
-    expected_delivery_date: '',
-    status: 'draft',
-    supplier_id: '',
-    supplier_data: null,
-    items: [],
-    subtotal: 0,
-    tax_rate: 20,
-    tax_amount: 0,
-    total: 0,
-    currency: 'MAD',
-    notes: '',
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString()
+  const [formData, setFormData] = useState<PurchaseOrder>({
+    id: editingOrder?.id || crypto.randomUUID(),
+    number: editingOrder?.number || '',
+    date: editingOrder?.date || new Date().toISOString().split('T')[0],
+    expected_delivery_date: editingOrder?.expected_delivery_date || '',
+    status: editingOrder?.status || 'draft',
+    supplier_id: editingOrder?.supplier_id || '',
+    supplier_data: editingOrder?.supplier_data || null,
+    items: editingOrder?.items || [], // Start with empty items list
+    subtotal: editingOrder?.subtotal || 0,
+    tax_rate: editingOrder?.tax_rate || 20,
+    tax_amount: editingOrder?.tax_amount || 0,
+    total: editingOrder?.total || 0,
+    currency: editingOrder?.currency || 'MAD',
+    notes: editingOrder?.notes || '',
+    created_at: editingOrder?.created_at || new Date().toISOString(),
+    updated_at: editingOrder?.updated_at || new Date().toISOString()
   });
 
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -98,17 +96,7 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
               status: 'draft',
               supplier_id: savedSuppliers.length > 0 ? savedSuppliers[0].id : '',
               supplier_data: null,
-              items: [{
-                id: crypto.randomUUID(),
-                product_id: '0',
-                description: '',
-                quantity: 1,
-                received: 0,
-                unit_price: 0,
-                total: 0,
-                tax_rate: 20,
-                tax_amount: 0
-              }],
+              items: [],
               subtotal: 0,
               tax_rate: 20,
               tax_amount: 0,
@@ -173,81 +161,95 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
   };
 
   const handleItemChange = (index: number, field: string, value: any) => {
-    console.log(`Changing purchase order item ${index}, field ${field}, value:`, value);
-
     const newItems = [...(formData.items || [])];
     newItems[index] = {
       ...newItems[index],
       [field]: value
     };
 
-    if (field === 'quantity' || field === 'unit_price') {
-      const newTotalTTC = round2(newItems[index].quantity * newItems[index].unit_price);
-      newItems[index].total = newTotalTTC;
+    // Recalculate totals if quantity, unit price or tax rate changes
+    if (field === 'quantity' || field === 'unit_price' || field === 'tax_rate') {
+      const item = newItems[index];
+      const totalHT = round2(item.unit_price * item.quantity);
+      const taxAmount = round2(totalHT * (item.tax_rate / 100));
+      const totalTTC = round2(totalHT + taxAmount);
 
-      const taxRate = (newItems[index].tax_rate || 20) / 100;
-      const totalHT = round2(newTotalTTC / (1 + taxRate));
-      newItems[index].tax_amount = round2(totalHT * taxRate);
+      newItems[index] = {
+        ...item,
+        total: totalTTC,
+        tax_amount: taxAmount
+      };
 
-      console.log(`Purchase order item total TTC: ${newTotalTTC}, HT: ${totalHT}, tax: ${newItems[index].tax_amount}`);
+      // Update form totals
+      const formTotals = calculateTotalsFromItems(newItems);
+      setFormData(prev => ({
+        ...prev,
+        items: newItems,
+        subtotal: formTotals.subtotal,
+        tax_amount: formTotals.tax_amount,
+        total: formTotals.total
+      }));
+    } else {
+      setFormData(prev => ({
+        ...prev,
+        items: newItems
+      }));
     }
+  };
 
-    if (field === 'tax_rate') {
-      const totalTTC = newItems[index].total;
-      const taxRate = parseFloat(value) / 100;
-      const totalHT = round2(totalTTC / (1 + taxRate));
-      newItems[index].tax_amount = round2(totalHT * taxRate);
-      console.log(`Tax rate changed to ${value}% for purchase order item "${newItems[index].description}", TTC stays ${totalTTC}`);
-    }
+  const calculateTotalsFromItems = (items: any[]) => {
+    const subtotal = round2(items.reduce((sum, item) => sum + (item.unit_price * item.quantity), 0));
+    const tax_amount = round2(items.reduce((sum, item) => {
+      const itemHT = item.unit_price * item.quantity;
+      return sum + (itemHT * (item.tax_rate / 100));
+    }, 0));
+    const total = round2(subtotal + tax_amount);
 
-    setFormData(prev => ({
-      ...prev,
-      items: newItems
-    }));
+    return { subtotal, tax_amount, total };
   };
 
   const addItem = () => {
-    console.log('Adding new purchase order item');
+    const newItem = {
+      id: crypto.randomUUID(),
+      description: '',
+      quantity: 1,
+      unit_price: 0,
+      total: 0,
+      tax_rate: 20,
+      tax_amount: 0,
+      received: 0
+    };
 
     setFormData(prev => ({
       ...prev,
-      items: [
-        ...(prev.items || []),
-        {
-          id: crypto.randomUUID(),
-          product_id: '0',
-          description: '',
-          quantity: 1,
-          received: 0,
-          unit_price: 0,
-          total: 0,
-          tax_rate: 20,
-          tax_amount: 0
-        }
-      ]
+      items: [...(prev.items || []), newItem]
     }));
   };
 
   const removeItem = (index: number) => {
-    console.log('Removing purchase order item at index:', index);
+    const newItems = formData.items?.filter((_, i) => i !== index) || [];
+    const formTotals = calculateTotalsFromItems(newItems);
 
     setFormData(prev => ({
       ...prev,
-      items: prev.items?.filter((_, i) => i !== index) || []
+      items: newItems,
+      subtotal: formTotals.subtotal,
+      tax_amount: formTotals.tax_amount,
+      total: formTotals.total
     }));
   };
 
   const handleProductSelect = async (product: ProductWithQuantity) => {
-    console.log(`Adding product "${product.name}" to purchase order with tax rate 20% (TTC pricing)`);
+    console.log(`Adding product "${product.name}" to purchase order`);
 
-    const priceTTC = round2(parseFloat(product.price));
-    const totalTTC = round2(priceTTC * product.quantity);
-
-    const taxRate = 20; // Default tax rate
-    const totalHT = round2(totalTTC / (1 + taxRate / 100));
+    // Use the buy price (HT) from the product
+    const buyPrice = product.buyPrice;
+    const totalHT = round2(buyPrice * product.quantity);
+    const taxRate = product.taxRate || 20;
     const taxAmount = round2(totalHT * (taxRate / 100));
+    const totalTTC = round2(totalHT + taxAmount);
 
-    console.log(`Purchase order product price: TTC=${priceTTC} (keeping TTC price, tax rate: ${taxRate}%)`);
+    console.log(`Purchase order product price: HT=${buyPrice} (buy price, tax rate: ${taxRate}%)`);
 
     const newItem = {
       id: crypto.randomUUID(),
@@ -256,7 +258,7 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
       description: product.name,
       quantity: product.quantity,
       received: 0,
-      unit_price: priceTTC,
+      unit_price: buyPrice, // This is the buy price (HT)
       total: totalTTC,
       tax_rate: taxRate,
       tax_amount: taxAmount
@@ -267,7 +269,34 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
       items: [...(prev.items || []), newItem]
     }));
 
-    console.log(`Purchase order product added - TTC: ${formatCurrency(totalTTC)}, HT: ${formatCurrency(totalHT)}, Tax: ${formatCurrency(taxAmount)}`);
+    console.log(`Purchase order product added - HT: ${formatCurrency(totalHT)}, Tax: ${formatCurrency(taxAmount)}, TTC: ${formatCurrency(totalTTC)}`);
+  };
+
+  const handleSupplierChange = async (supplierId: string) => {
+    const supplier = suppliers.find(s => s.id === supplierId);
+    setFormData(prev => ({
+      ...prev,
+      supplier_id: supplierId,
+      supplier_data: supplier || null
+    }));
+
+    // If supplier is not TVA registered, set all tax rates to 0
+    if (supplier && !supplier.tva_registered) {
+      const updatedItems = formData.items?.map(item => ({
+        ...item,
+        tax_rate: 0,
+        tax_amount: 0,
+        total: round2(item.unit_price * item.quantity) // Total becomes just HT
+      })) || [];
+
+      setFormData(prev => ({
+        ...prev,
+        items: updatedItems,
+        tax_rate: 0,
+        tax_amount: 0,
+        total: round2(updatedItems.reduce((sum, item) => sum + (item.total || 0), 0))
+      }));
+    }
   };
 
   const validateForm = (): boolean => {
@@ -350,28 +379,6 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
     onCancel();
   };
 
-  const getTaxBreakdown = () => {
-    const taxBreakdown = new Map<number, number>();
-
-    formData.items?.forEach(item => {
-      const taxRate = item.tax_rate || 20;
-      const totalTTC = item.total || 0;
-      const taxRate100 = taxRate / 100;
-      const totalHT = round2(totalTTC / (1 + taxRate100));
-      const taxAmount = round2(totalHT * taxRate100);
-
-      if (taxBreakdown.has(taxRate)) {
-        taxBreakdown.set(taxRate, round2(taxBreakdown.get(taxRate)! + taxAmount));
-      } else {
-        taxBreakdown.set(taxRate, taxAmount);
-      }
-    });
-
-    return Array.from(taxBreakdown.entries())
-      .filter(([_, amount]) => amount > 0)
-      .sort(([rateA], [rateB]) => rateA - rateB);
-  };
-
   if (isLoading) {
     return (
       <div className="h-full flex items-center justify-center bg-gray-50">
@@ -399,7 +406,7 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
             <h1 className="text-3xl font-bold text-gray-900">
               {editingOrder ? 'Modifier le bon de commande' : 'Nouveau bon de commande'}
             </h1>
-            <p className="text-gray-600 mt-1">Prix TTC (comme WooCommerce), calculs automatiques</p>
+            <p className="text-gray-600 mt-1">Prix d'achat HT, calculs automatiques de la TVA</p>
           </div>
           <div className="flex items-center space-x-3">
             <button
@@ -430,45 +437,24 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
       </div>
 
       {/* Scrollable Content */}
-      <div className="flex-1 overflow-auto p-6">
-        <form onSubmit={handleSubmit} className="max-w-6xl mx-auto space-y-6">
-          {errors.general && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-start space-x-3">
-              <AlertCircle className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="text-sm font-medium text-red-800">{errors.general}</p>
-              </div>
-            </div>
-          )}
-
-          {/* Order Header */}
+      <div className="flex-1 overflow-y-auto">
+        <form className="max-w-5xl mx-auto p-6 space-y-6">
+          {/* General Information */}
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <h2 className="text-lg font-semibold text-gray-900 mb-6">Informations générales</h2>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Numéro de bon de commande
+                  Numéro
                 </label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={formData.number || 'Génération...'}
-                    className="w-full px-3 py-2 border border-gray-300 bg-gray-50 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 cursor-not-allowed"
-                    required
-                    readOnly
-                  />
-                  <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
-                    <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">Auto</span>
-                  </div>
+                <div className="px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-gray-700">
+                  {formData.number || 'Généré automatiquement'}
                 </div>
-                {!numberReserved && (
-                  <p className="text-xs text-orange-500 mt-1">Réservation du numéro en cours...</p>
-                )}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Date de commande
+                  Date *
                 </label>
                 <input
                   type="date"
@@ -477,19 +463,18 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   required
                 />
+                {errors.date && <p className="text-red-500 text-sm mt-1">{errors.date}</p>}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Livraison attendue
+                  Date de livraison prévue
                 </label>
                 <input
                   type="date"
-                  value={formData.expected_delivery_date}
+                  value={formData.expected_delivery_date || ''}
                   onChange={(e) => setFormData(prev => ({ ...prev, expected_delivery_date: e.target.value }))}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  required
                 />
-                {errors.expected_delivery_date && <p className="text-red-500 text-sm mt-1">{errors.expected_delivery_date}</p>}
               </div>
             </div>
 
@@ -500,14 +485,15 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
                 </label>
                 <select
                   value={formData.supplier_id}
-                  onChange={(e) => setFormData(prev => ({ ...prev, supplier_id: e.target.value }))}
+                  onChange={(e) => handleSupplierChange(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   required
                 >
                   <option value="">Sélectionner un fournisseur</option>
                   {suppliers.map((supplier) => (
                     <option key={supplier.id} value={supplier.id}>
-                      {supplier.name}
+                      {supplier.name} {supplier.company ? `(${supplier.company})` : ''}
+                      {!supplier.tva_registered && ' - Non assujetti TVA'}
                     </option>
                   ))}
                 </select>
@@ -530,6 +516,13 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
                 </select>
               </div>
             </div>
+
+            {/* Add TVA status notice */}
+            {formData.supplier_id && suppliers.find(s => s.id === formData.supplier_id)?.tva_registered === false && (
+              <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">
+                Ce fournisseur n'est pas assujetti à la TVA. Les prix sont HT sans TVA.
+              </div>
+            )}
           </div>
 
           {/* Items */}
@@ -561,31 +554,30 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
               <div className="flex items-start space-x-2">
                 <Package className="w-4 h-4 text-blue-500 mt-0.5" />
                 <div className="text-sm text-blue-700">
-                  <strong>Prix TTC:</strong> Les prix sont saisis en TTC (comme WooCommerce).
-                  Le sous-total HT et la TVA sont calculés automatiquement avec une précision de 2 décimales.
+                  <strong>Prix d'achat HT:</strong> Les prix sont saisis en HT.
+                  La TVA est calculée automatiquement avec une précision de 2 décimales.
                 </div>
               </div>
             </div>
 
+            {/* Items Table */}
             <div className="overflow-x-auto">
-              <table className="min-w-full">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Description</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Quantité</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Prix unitaire TTC</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total TTC</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Taux TVA</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">TVA</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead>
+                  <tr className="bg-gray-50">
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Description</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Quantité</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Prix unitaire HT</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">TVA</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total TTC</th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
                   {formData.items?.map((item, index) => {
-                    const totalTTC = item.total || 0;
-                    const taxRate100 = (item.tax_rate || 20) / 100;
-                    const totalHT = round2(totalTTC / (1 + taxRate100));
-                    const itemTaxAmount = round2(totalHT * taxRate100);
+                    const totalHT = round2(item.unit_price * item.quantity);
+                    const taxAmount = round2(totalHT * (item.tax_rate / 100));
+                    const totalTTC = round2(totalHT + taxAmount);
 
                     return (
                       <tr key={item.id}>
@@ -613,56 +605,58 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
                         <td className="px-6 py-4">
                           <input
                             type="number"
+                            min="1"
                             value={item.quantity}
                             onChange={(e) => handleItemChange(index, 'quantity', parseInt(e.target.value) || 0)}
                             className="w-20 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                            min="1"
                           />
                           {errors[`item_${index}_quantity`] && (
                             <p className="text-red-500 text-xs mt-1">{errors[`item_${index}_quantity`]}</p>
                           )}
                         </td>
                         <td className="px-6 py-4">
-                          <input
-                            type="number"
-                            value={item.unit_price.toFixed(2)}
-                            onChange={(e) => handleItemChange(index, 'unit_price', parseFloat(e.target.value) || 0)}
-                            className="w-32 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                            min="0"
-                            step="0.01"
-                          />
-                          <p className="text-xs text-gray-500 mt-1">TTC</p>
-                          {errors[`item_${index}_price`] && (
-                            <p className="text-red-500 text-xs mt-1">{errors[`item_${index}_price`]}</p>
+                          <div className="flex items-center space-x-1">
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={item.unit_price}
+                              onChange={(e) => handleItemChange(index, 'unit_price', parseFloat(e.target.value) || 0)}
+                              className="w-24 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            />
+                            <span className="text-gray-500">{formData.currency}</span>
+                          </div>
+                          {errors[`item_${index}_unit_price`] && (
+                            <p className="text-red-500 text-xs mt-1">{errors[`item_${index}_unit_price`]}</p>
                           )}
                         </td>
-                        <td className="px-6 py-4 font-medium">
-                          <div>
-                            <div className="text-blue-600 font-bold">{formatCurrency(totalTTC)}</div>
-                            <div className="text-xs text-gray-500">HT: {formatCurrency(totalHT)}</div>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center space-x-1">
+                            <input
+                              type="number"
+                              step="1"
+                              min="0"
+                              max="100"
+                              value={item.tax_rate}
+                              onChange={(e) => handleItemChange(index, 'tax_rate', parseFloat(e.target.value) || 0)}
+                              className="w-20 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                            />
+                            <span className="text-gray-500">%</span>
                           </div>
                         </td>
                         <td className="px-6 py-4">
-                          <select
-                            value={item.tax_rate ?? 20}
-                            onChange={(e) => handleItemChange(index, 'tax_rate', parseFloat(e.target.value))}
-                            className="w-20 px-2 py-1 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                          >
-                            <option value={0}>0%</option>
-                            <option value={7}>7%</option>
-                            <option value={10}>10%</option>
-                            <option value={20}>20%</option>
-                          </select>
-                        </td>
-                        <td className="px-6 py-4 font-medium text-blue-600">
-                          {formatCurrency(itemTaxAmount)}
+                          <div className="text-sm">
+                            <p className="font-medium">{formatCurrency(totalTTC)} {formData.currency}</p>
+                            <p className="text-gray-500 text-xs">
+                              HT: {formatCurrency(totalHT)} | TVA: {formatCurrency(taxAmount)}
+                            </p>
+                          </div>
                         </td>
                         <td className="px-6 py-4">
                           <button
                             type="button"
                             onClick={() => removeItem(index)}
-                            className="text-red-600 hover:text-red-800 p-2 hover:bg-red-50 rounded-lg transition-colors"
-                            disabled={formData.items?.length === 1}
+                            className="text-red-600 hover:text-red-900 p-1 hover:bg-red-50 rounded"
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>
@@ -674,37 +668,30 @@ const PurchaseOrderForm: React.FC<PurchaseOrderFormProps> = ({
               </table>
             </div>
 
-            {errors.items && <p className="text-red-500 text-sm mt-2">{errors.items}</p>}
-          </div>
+            {formData.items?.length === 0 && (
+              <div className="text-center py-12">
+                <Package className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-gray-900 mb-2">Aucun article</h3>
+                <p className="text-gray-500 mb-4">
+                  Ajoutez des articles à commander en utilisant les boutons ci-dessus
+                </p>
+              </div>
+            )}
 
-          {/* Totals with Tax Breakdown */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <div className="flex justify-end">
-              <div className="w-full max-w-md space-y-4">
+            {/* Totals */}
+            <div className="mt-6 flex justify-end">
+              <div className="w-64 space-y-3">
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Sous-total HT:</span>
-                  <span className="font-medium">{formatCurrency(formData.subtotal || 0)}</span>
+                  <span className="text-gray-500">Total HT:</span>
+                  <span className="font-medium">{formatCurrency(formData.subtotal)} {formData.currency}</span>
                 </div>
-
-                {/* Enhanced Tax Breakdown */}
-                {getTaxBreakdown().map(([rate, amount]) => (
-                  <div key={rate} className="flex justify-between text-sm">
-                    <span className="text-gray-600 flex items-center">
-                      <Percent className="w-3 h-3 mr-1" />
-                      TVA {rate}%:
-                    </span>
-                    <span className="font-medium text-blue-600">{formatCurrency(amount)}</span>
-                  </div>
-                ))}
-
-                <div className="flex justify-between text-sm border-t pt-2">
-                  <span className="text-gray-600">Total TVA:</span>
-                  <span className="font-medium text-blue-600">{formatCurrency(formData.tax_amount || 0)}</span>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">TVA ({formData.tax_rate}%):</span>
+                  <span className="font-medium">{formatCurrency(formData.tax_amount)} {formData.currency}</span>
                 </div>
-
-                <div className="flex justify-between text-lg font-bold border-t pt-4">
+                <div className="flex justify-between text-base font-bold border-t border-gray-200 pt-3">
                   <span>Total TTC:</span>
-                  <span className="text-blue-600">{formatCurrency(formData.total || 0)}</span>
+                  <span>{formatCurrency(formData.total)} {formData.currency}</span>
                 </div>
               </div>
             </div>

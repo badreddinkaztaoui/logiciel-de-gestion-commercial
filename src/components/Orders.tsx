@@ -311,6 +311,10 @@ const Orders: React.FC = () => {
     navigate('/invoices/create', { state: { sourceOrder: order } });
   };
 
+  const handleCreateQuoteFromOrder = (order: WooCommerceOrder) => {
+    navigate('/quotes/new', { state: { sourceOrder: order } });
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'pending': return 'bg-orange-100 text-orange-800';
@@ -712,6 +716,13 @@ const Orders: React.FC = () => {
                             >
                               <FileText className="w-4 h-4" />
                             </button>
+                            <button
+                              onClick={() => handleCreateQuoteFromOrder(order)}
+                              className="text-orange-600 hover:text-orange-900"
+                              title="Créer devis"
+                            >
+                              <FileText className="w-4 h-4" />
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -832,6 +843,12 @@ const Orders: React.FC = () => {
 
               {/* Actions */}
               <div className="mt-8 flex justify-end space-x-3">
+                <button
+                  onClick={() => handleCreateQuoteFromOrder(selectedOrder)}
+                  className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700"
+                >
+                  Créer devis
+                </button>
                 <button
                   onClick={() => handleCreateInvoiceFromOrder(selectedOrder)}
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"

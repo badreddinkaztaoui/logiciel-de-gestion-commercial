@@ -218,6 +218,7 @@ export interface Supplier {
   postal_code?: string;
   country?: string;
   ice?: string;
+  tva_registered?: boolean; // Whether the supplier is registered for TVA
   notes?: string;
   created_at?: string;
   updated_at?: string;

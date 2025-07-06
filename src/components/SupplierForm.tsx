@@ -20,6 +20,7 @@ const SupplierForm: React.FC<SupplierFormProps> = ({ editingSupplier, onSave, on
     postal_code: editingSupplier?.postal_code || '',
     country: editingSupplier?.country || 'Maroc',
     ice: editingSupplier?.ice || '',
+    tva_registered: editingSupplier?.tva_registered || false,
     notes: editingSupplier?.notes || ''
   });
 
@@ -29,8 +30,12 @@ const SupplierForm: React.FC<SupplierFormProps> = ({ editingSupplier, onSave, on
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
+    const { name, value, type } = e.target;
+    if (type === 'checkbox') {
+      setFormData(prev => ({ ...prev, [name]: (e.target as HTMLInputElement).checked }));
+    } else {
+      setFormData(prev => ({ ...prev, [name]: value }));
+    }
   };
 
   return (
@@ -94,6 +99,23 @@ const SupplierForm: React.FC<SupplierFormProps> = ({ editingSupplier, onSave, on
                   onChange={handleChange}
                   className="mt-1 block w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
+              </div>
+              <div className="col-span-2">
+                <label className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    name="tva_registered"
+                    checked={formData.tva_registered}
+                    onChange={handleChange}
+                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                  />
+                  <span className="text-sm font-medium text-gray-700">
+                    Assujetti à la TVA
+                  </span>
+                </label>
+                <p className="mt-1 text-sm text-gray-500">
+                  Cochez cette case si le fournisseur est assujetti à la TVA
+                </p>
               </div>
             </div>
 

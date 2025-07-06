@@ -101,7 +101,7 @@ const Suppliers: React.FC = () => {
     return (
       <SupplierForm
         editingSupplier={editingSupplier}
-        onSave={() => handleSaveSupplier(editingSupplier as Supplier)}
+        onSave={handleSaveSupplier}
         onCancel={() => {
           setShowForm(false);
           setEditingSupplier(null);

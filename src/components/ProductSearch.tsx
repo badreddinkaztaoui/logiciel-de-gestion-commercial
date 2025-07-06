@@ -19,6 +19,7 @@ import { formatCurrency } from '../utils/formatters';
 export interface ProductWithQuantity extends WooCommerceProduct {
   quantity: number;
   taxRate: number;
+  buyPrice: number;
 }
 
 interface ProductSearchProps {
@@ -38,6 +39,7 @@ const ProductSearch: React.FC<ProductSearchProps> = ({
   const [selectedProduct, setSelectedProduct] = useState<WooCommerceProduct | null>(null);
   const [quantity, setQuantity] = useState(1);
   const [selectedTaxRate, setSelectedTaxRate] = useState(20); // Default tax rate
+  const [buyPrice, setBuyPrice] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   // Helper function to round to 2 decimal places
@@ -82,6 +84,9 @@ const ProductSearch: React.FC<ProductSearchProps> = ({
 
   const handleProductSelect = async (product: WooCommerceProduct) => {
     setSelectedProduct(product);
+    const sellPriceTTC = parseFloat(product.price);
+    const suggestedBuyPrice = round2(sellPriceTTC * 0.8);
+    setBuyPrice(suggestedBuyPrice);
 
     try {
       const taxRate = wooCommerceService.getTaxRateForClass(product.tax_class || '');
@@ -94,7 +99,7 @@ const ProductSearch: React.FC<ProductSearchProps> = ({
   };
 
   const handleAddProduct = () => {
-    if (selectedProduct && quantity > 0) {
+    if (selectedProduct && quantity > 0 && buyPrice > 0) {
       if (!allowQuantityOverStock &&
           selectedProduct.manage_stock &&
           selectedProduct.stock_quantity !== null &&
@@ -106,17 +111,19 @@ const ProductSearch: React.FC<ProductSearchProps> = ({
       // Get tax rate for this product
       const taxRate = selectedTaxRate;
 
-      // Create product with quantity and tax rate
+      // Create product with quantity, tax rate and buy price
       const productWithQuantity: ProductWithQuantity = {
         ...selectedProduct,
         quantity: quantity,
-        taxRate: taxRate
+        taxRate: taxRate,
+        buyPrice: buyPrice
       };
 
       onSelect(productWithQuantity);
       setSelectedProduct(null);
       setQuantity(1);
       setSelectedTaxRate(20);
+      setBuyPrice(0);
       onClose();
     }
   };
@@ -304,7 +311,7 @@ const ProductSearch: React.FC<ProductSearchProps> = ({
           </div>
 
           {/* Product Details and Configuration */}
-          <div className="w-96 border-l border-gray-200 pl-6">
+          <div className="w-96 border-l border-gray-200 pl-6 overflow-y-auto">
             {selectedProduct ? (
               <div className="space-y-4">
                 <h4 className="font-semibold text-gray-900">Configuration du produit</h4>
@@ -380,6 +387,27 @@ const ProductSearch: React.FC<ProductSearchProps> = ({
                   )}
                 </div>
 
+                {/* Buy Price Input */}
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Prix d'achat HT
+                  </label>
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={buyPrice}
+                      onChange={(e) => setBuyPrice(parseFloat(e.target.value) || 0)}
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                    <span className="text-gray-500">MAD</span>
+                  </div>
+                  <p className="text-xs text-yellow-600 mt-1">
+                    Prix de vente TTC WooCommerce: {formatCurrency(parseFloat(selectedProduct.price))}
+                  </p>
+                </div>
+
                 {/* Price Display - TTC prices are kept as-is */}
                 <div className="bg-green-50 border border-green-200 rounded-lg p-4">
                   <h6 className="font-medium text-green-900 mb-3">Prix WooCommerce (TTC conservé)</h6>
@@ -428,19 +456,19 @@ const ProductSearch: React.FC<ProductSearchProps> = ({
                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
                   <h6 className="font-medium text-gray-900 mb-2">Total de la ligne</h6>
                   <div className="space-y-1 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-700">Total HT:</span>
+                      <span className="font-medium">{formatCurrency(round2(buyPrice * quantity))}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-700">TVA ({selectedTaxRate}%):</span>
+                      <span className="font-medium">{formatCurrency(round2((buyPrice * quantity) * (selectedTaxRate / 100)))}</span>
+                    </div>
                     <div className="flex justify-between border-t pt-1">
                       <span className="font-bold text-gray-900">Total TTC:</span>
                       <span className="text-lg font-bold text-blue-600">
-                        {formatCurrency(round2(parseFloat(selectedProduct.price) * quantity))}
+                        {formatCurrency(round2((buyPrice * quantity) * (1 + selectedTaxRate / 100)))}
                       </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-700">dont HT:</span>
-                      <span className="font-medium">{formatCurrency(round2((parseFloat(selectedProduct.price) / (1 + selectedTaxRate / 100)) * quantity))}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-700">dont TVA ({selectedTaxRate}%):</span>
-                      <span className="font-medium">{formatCurrency(round2(((parseFloat(selectedProduct.price) / (1 + selectedTaxRate / 100)) * quantity) * (selectedTaxRate / 100)))}</span>
                     </div>
                   </div>
                 </div>
