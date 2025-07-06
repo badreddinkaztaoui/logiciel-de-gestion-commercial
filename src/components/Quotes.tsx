@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Plus,
   Edit,
@@ -8,7 +9,6 @@ import {
   FileText,
   Clock,
   CheckCircle,
-  AlertTriangle,
   X,
   TrendingUp,
   Loader2
@@ -17,14 +17,13 @@ import { quoteService } from '../services/quoteService';
 import { invoiceService } from '../services/invoiceService';
 import { Quote } from '../types';
 import { formatCurrency, formatDate } from '../utils/formatters';
-import QuoteForm from './QuoteForm';
 import { toast, Toaster } from 'react-hot-toast';
+import { supabase } from '../lib/supabase';
 
 const Quotes: React.FC = () => {
+  const navigate = useNavigate();
   const [quotes, setQuotes] = useState<Quote[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [showForm, setShowForm] = useState(false);
-  const [editingQuote, setEditingQuote] = useState<Quote | null>(null);
   const [selectedQuote, setSelectedQuote] = useState<Quote | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [loading, setLoading] = useState(true);
@@ -47,16 +46,18 @@ const Quotes: React.FC = () => {
     try {
       setLoading(true);
       const loadedQuotes = await quoteService.getQuotes();
-      setQuotes(loadedQuotes);
+
+      const activeQuotes = loadedQuotes.filter(quote => quote.status !== 'deleted');
+      setQuotes(activeQuotes);
 
       const stats = {
-        total: loadedQuotes.length,
-        draft: loadedQuotes.filter(q => q.status === 'draft').length,
-        sent: loadedQuotes.filter(q => q.status === 'sent').length,
-        accepted: loadedQuotes.filter(q => q.status === 'accepted').length,
-        rejected: loadedQuotes.filter(q => q.status === 'rejected').length,
-        expired: loadedQuotes.filter(q => q.status === 'expired').length,
-        totalValue: loadedQuotes.reduce((sum, q) => sum + q.total, 0)
+        total: activeQuotes.length,
+        draft: activeQuotes.filter(q => q.status === 'draft').length,
+        sent: activeQuotes.filter(q => q.status === 'sent').length,
+        accepted: activeQuotes.filter(q => q.status === 'accepted').length,
+        rejected: activeQuotes.filter(q => q.status === 'rejected').length,
+        expired: activeQuotes.filter(q => q.status === 'expired').length,
+        totalValue: activeQuotes.reduce((sum, q) => sum + q.total, 0)
       };
       setStats(stats);
     } catch (error) {
@@ -79,23 +80,80 @@ const Quotes: React.FC = () => {
   };
 
   const handleCreateQuote = () => {
-    setEditingQuote(null);
-    setShowForm(true);
+    navigate('/quotes/new');
   };
 
   const handleEditQuote = (quote: Quote) => {
-    setEditingQuote(quote);
-    setShowForm(true);
+    navigate(`/quotes/${quote.id}`);
   };
 
   const handleDeleteQuote = async (quoteId: string) => {
     if (window.confirm('Êtes-vous sûr de vouloir supprimer ce devis ?')) {
       try {
         await quoteService.deleteQuote(quoteId);
+        toast.success('Devis supprimé avec succès');
         await loadQuotes();
       } catch (error) {
         console.error('Error deleting quote:', error);
-        alert('Erreur lors de la suppression du devis');
+
+        // Run comprehensive debugging
+        console.log('Running comprehensive debug analysis...');
+        await quoteService.debugQuoteAccess(quoteId);
+        await quoteService.checkRLSPolicies();
+        await quoteService.attemptDirectDelete(quoteId);
+
+        // Check if the error is due to RLS policies
+        if (error instanceof Error && error.message.includes('still exists')) {
+          console.log('Attempting soft delete workaround...');
+
+          try {
+            // Try soft delete approach - update status to 'deleted' instead of actual deletion
+            const { data: softDeleteResult, error: softDeleteError } = await supabase
+              .from('quotes')
+              .update({
+                status: 'deleted',
+                deleted_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+              })
+              .eq('id', quoteId)
+              .select();
+
+            if (softDeleteError) {
+              console.error('Soft delete failed:', softDeleteError);
+              throw error; // Re-throw original error
+            }
+
+            console.log('Soft delete successful:', softDeleteResult);
+            toast.success('Devis supprimé avec succès (soft delete)');
+            await loadQuotes();
+            return; // Exit successfully
+          } catch (softDeleteErr) {
+            console.error('Soft delete workaround failed:', softDeleteErr);
+          }
+        }
+
+        // Provide more specific error messages
+        let errorMessage = 'Erreur lors de la suppression du devis';
+
+        if (error instanceof Error) {
+          if (error.message.includes('authentication')) {
+            errorMessage = 'Erreur d\'authentification. Veuillez vous reconnecter.';
+          } else if (error.message.includes('foreign key')) {
+            errorMessage = 'Impossible de supprimer ce devis car il est référencé dans d\'autres documents.';
+          } else if (error.message.includes('permission')) {
+            errorMessage = 'Vous n\'avez pas les permissions nécessaires pour supprimer ce devis.';
+          } else if (error.message.includes('not found')) {
+            errorMessage = 'Ce devis n\'existe plus ou a déjà été supprimé.';
+          } else if (error.message.includes('Row Level Security')) {
+            errorMessage = 'Impossible de supprimer ce devis. Vérifiez les permissions de la base de données.';
+          } else if (error.message.includes('still exists')) {
+            errorMessage = 'La suppression a échoué en raison des politiques de sécurité de la base de données. Contactez l\'administrateur.';
+          } else {
+            errorMessage = `Erreur lors de la suppression: ${error.message}`;
+          }
+        }
+
+        toast.error(errorMessage);
       }
     }
   };
@@ -108,8 +166,6 @@ const Quotes: React.FC = () => {
         await quoteService.createQuote(quote);
       }
       await loadQuotes();
-      setShowForm(false);
-      setEditingQuote(null);
     } catch (error) {
       console.error('Error saving quote:', error);
       alert('Erreur lors de la sauvegarde du devis');
@@ -153,29 +209,12 @@ const Quotes: React.FC = () => {
         }
       }
 
-      const invoiceData = quoteService.convertToInvoice(quote.id);
-
-      await invoiceService.saveInvoice(invoiceData);
-
-      alert(`Le devis a été converti en facture avec succès !`);
-
-      window.location.href = '#invoices';
+      // Navigate to invoice form with the quote data
+      navigate('/invoices/create', { state: { sourceQuote: quote } });
     } catch (error) {
       console.error('Error converting quote to invoice:', error);
-      alert('Erreur lors de la conversion du devis en facture');
+      toast.error('Erreur lors de la conversion du devis en facture');
     }
-  };
-
-  const handleExportQuote = (quote: Quote) => {
-    const exportData = JSON.stringify(quote, null, 2);
-    const blob = new Blob([exportData], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `devis-${quote.number}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
   };
 
   const filteredQuotes = quotes.filter(quote => {
@@ -205,23 +244,6 @@ const Quotes: React.FC = () => {
     }
   };
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'draft':
-        return <FileText className="w-4 h-4" />;
-      case 'sent':
-        return <Clock className="w-4 h-4" />;
-      case 'accepted':
-        return <CheckCircle className="w-4 h-4" />;
-      case 'rejected':
-        return <X className="w-4 h-4" />;
-      case 'expired':
-        return <AlertTriangle className="w-4 h-4" />;
-      default:
-        return <FileText className="w-4 h-4" />;
-    }
-  };
-
   const getStatusLabel = (status: string) => {
     switch (status) {
       case 'draft':
@@ -238,29 +260,6 @@ const Quotes: React.FC = () => {
         return status;
     }
   };
-
-  const isQuoteExpired = (validUntil: string) => {
-    const now = new Date();
-    const expiryDate = new Date(validUntil);
-    return now > expiryDate;
-  };
-
-  const canBeConverted = (quote: Quote) => {
-    return quote.status === 'accepted' || quote.status === 'sent';
-  };
-
-  if (showForm) {
-    return (
-      <QuoteForm
-        editingQuote={editingQuote}
-        onSave={handleSaveQuote}
-        onCancel={() => {
-          setShowForm(false);
-          setEditingQuote(null);
-        }}
-      />
-    );
-  }
 
   if (loading) {
     return (

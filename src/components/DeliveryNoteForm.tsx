@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import {
   Plus,
   Trash2,
@@ -29,6 +30,13 @@ const DeliveryNoteForm: React.FC<DeliveryNoteFormProps> = ({
   onSave,
   onCancel
 }) => {
+  const location = useLocation();
+  const stateSourceInvoice = location.state?.sourceInvoice;
+  const stateSourceOrder = location.state?.sourceOrder;
+
+  const effectiveSourceInvoice = sourceInvoice || stateSourceInvoice;
+  const effectiveSourceOrder = sourceOrder || stateSourceOrder;
+
   const [formData, setFormData] = useState<Partial<DeliveryNote>>({
     id: '',
     number: '',
@@ -84,10 +92,10 @@ const DeliveryNoteForm: React.FC<DeliveryNoteFormProps> = ({
             const invoice = invoices.find(i => i.id === editingNote.invoice_id);
             setSelectedInvoice(invoice || null);
           }
-        } else if (sourceOrder) {
-          await initializeFromOrder(sourceOrder);
-        } else if (sourceInvoice) {
-          await initializeFromInvoice(sourceInvoice);
+        } else if (effectiveSourceOrder) {
+          await initializeFromOrder(effectiveSourceOrder);
+        } else if (effectiveSourceInvoice) {
+          await initializeFromInvoice(effectiveSourceInvoice);
         } else {
           // New delivery note
           const tomorrow = new Date();
@@ -125,7 +133,7 @@ const DeliveryNoteForm: React.FC<DeliveryNoteFormProps> = ({
     };
 
     loadData();
-  }, [editingNote, sourceOrder, sourceInvoice]);
+  }, [editingNote, effectiveSourceOrder, effectiveSourceInvoice]);
 
   const initializeFromOrder = async (order: WooCommerceOrder) => {
     setSelectedOrder(order);
@@ -182,7 +190,7 @@ const DeliveryNoteForm: React.FC<DeliveryNoteFormProps> = ({
         company: invoice.customer.company || '',
         address: invoice.customer.address,
         city: invoice.customer.city,
-        postalCode: invoice.customer.postalCode,
+        postalCode: invoice.customer.postal_code,
         country: invoice.customer.country
       },
       items: invoice.items.map(item => ({
@@ -454,14 +462,14 @@ const DeliveryNoteForm: React.FC<DeliveryNoteFormProps> = ({
             <h1 className="text-3xl font-bold text-gray-900">
               {editingNote ? 'Modifier le bon de livraison' : 'Nouveau bon de livraison'}
             </h1>
-            {sourceOrder && (
+            {effectiveSourceOrder && (
               <p className="text-gray-600 mt-1">
-                À partir de la commande #{sourceOrder.number}
+                À partir de la commande #{effectiveSourceOrder.number}
               </p>
             )}
-            {sourceInvoice && (
+            {effectiveSourceInvoice && (
               <p className="text-gray-600 mt-1">
-                À partir de la facture #{sourceInvoice.number}
+                À partir de la facture #{effectiveSourceInvoice.number}
               </p>
             )}
           </div>
@@ -571,7 +579,7 @@ const DeliveryNoteForm: React.FC<DeliveryNoteFormProps> = ({
           </div>
 
           {/* Source Selection */}
-          {!sourceOrder && !sourceInvoice && (
+          {!effectiveSourceOrder && !effectiveSourceInvoice && (
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
               <h2 className="text-lg font-semibold text-gray-900 mb-6">Source du bon de livraison</h2>
 

@@ -96,7 +96,7 @@ export interface Quote {
   };
   date: string;
   validUntil: string;
-  status: 'draft' | 'sent' | 'accepted' | 'rejected' | 'expired';
+  status: 'draft' | 'sent' | 'accepted' | 'rejected' | 'expired' | 'deleted';
   items: {
     description: string;
     quantity: number;

@@ -4,17 +4,22 @@ import {
   Plus,
   Edit,
   Eye,
-  Trash2,
   Search,
   FileText,
   Users,
   CheckCircle,
   AlertTriangle,
   X,
-  Loader2
+  Loader2,
+  Truck,
+  RefreshCw,
+  RotateCcw
 } from 'lucide-react';
 import { toast, Toaster } from 'react-hot-toast';
 import { invoiceService } from '../services/invoiceService';
+import { deliveryNoteService } from '../services/deliveryNoteService';
+import { returnNoteService } from '../services/returnNoteService';
+import { wooCommerceService } from '../services/woocommerce';
 import { Invoice } from '../types/index';
 import { formatCurrency, formatDate } from '../utils/formatters';
 
@@ -77,31 +82,102 @@ const Invoices: React.FC = () => {
     navigate(`/invoices/edit/${invoice.id}`);
   };
 
-  const handleDeleteInvoice = async (id: string) => {
-    if (confirm('Êtes-vous sûr de vouloir supprimer cette facture ?')) {
+  const handleCancelInvoice = async (id: string) => {
+    if (confirm('Êtes-vous sûr de vouloir annuler cette facture ? Les articles seront retournés au stock WooCommerce.')) {
       try {
-        await invoiceService.deleteInvoice(id);
-        setInvoices(invoices.filter(invoice => invoice.id !== id));
-        toast.success('Facture supprimée avec succès');
-      } catch (error: any) {
-        console.error('Error deleting invoice:', error);
+        const invoice = await invoiceService.getInvoiceById(id);
+        if (!invoice) {
+          toast.error('Facture introuvable');
+          return;
+        }
 
-        if (error.message && error.message.includes('WooCommerce')) {
-          if (confirm(error.message + '\n\nVoulez-vous annuler cette facture à la place ?')) {
-            try {
-              const updatedInvoice = await invoiceService.cancelInvoice(id);
-              setInvoices(invoices.map(inv => inv.id === id ? updatedInvoice : inv));
-              toast.success('Facture annulée avec succès');
-            } catch (cancelError) {
-              toast.error('Erreur lors de l\'annulation de la facture');
-              console.error('Error cancelling invoice:', cancelError);
+        // Cancel the invoice
+        const updatedInvoice = await invoiceService.cancelInvoice(id);
+
+        // Return items to WooCommerce stock if there's a linked order
+        if (invoice.orderId && invoice.items.length > 0) {
+          let stockUpdatesCount = 0;
+
+          for (const item of invoice.items) {
+            if (item.productId) {
+              try {
+                await wooCommerceService.increaseProductStock(item.productId, item.quantity);
+                stockUpdatesCount++;
+              } catch (error) {
+                console.error(`Error returning stock for product ${item.productId}:`, error);
+                // Continue with other items even if one fails
+              }
             }
           }
+
+          // Add note to WooCommerce order
+          if (stockUpdatesCount > 0) {
+            try {
+              await wooCommerceService.addOrderNote(
+                invoice.orderId,
+                `Facture ${invoice.number} annulée - ${stockUpdatesCount} article(s) retourné(s) au stock`,
+                true
+              );
+            } catch (error) {
+              console.error('Error adding order note:', error);
+            }
+          }
+
+          toast.success(`Facture annulée avec succès. ${stockUpdatesCount} article(s) retourné(s) au stock WooCommerce.`);
         } else {
-          toast.error('Erreur lors de la suppression de la facture');
+          toast.success('Facture annulée avec succès');
         }
+
+        setInvoices(invoices.map(inv => inv.id === id ? updatedInvoice : inv));
+      } catch (error: any) {
+        console.error('Error cancelling invoice:', error);
+        toast.error(error.message || 'Erreur lors de l\'annulation de la facture');
       }
     }
+  };
+
+  const handleCreateDeliveryNote = async (invoiceId: string) => {
+    try {
+      const invoice = await invoiceService.getInvoiceById(invoiceId);
+      if (!invoice) {
+        toast.error('Facture introuvable');
+        return;
+      }
+
+      // Navigate to delivery note form with invoice data
+      navigate('/delivery-notes/create', { state: { sourceInvoice: invoice } });
+    } catch (error: any) {
+      console.error('Error loading invoice:', error);
+      toast.error(error.message || 'Erreur lors du chargement de la facture');
+    }
+  };
+
+  const handleCreateReturnNote = async (invoiceId: string) => {
+    try {
+      const invoice = await invoiceService.getInvoiceById(invoiceId);
+      if (!invoice) {
+        toast.error('Facture introuvable');
+        return;
+      }
+
+      // Navigate to return note form with invoice data
+      navigate('/return-notes/create', { state: { sourceInvoice: invoice } });
+    } catch (error: any) {
+      console.error('Error loading invoice:', error);
+      toast.error(error.message || 'Erreur lors du chargement de la facture');
+    }
+  };
+
+  const canCreateDeliveryNote = (invoice: Invoice) => {
+    return invoice.status !== 'cancelled';
+  };
+
+  const canCreateReturnNote = (invoice: Invoice) => {
+    return invoice.status === 'paid' || invoice.status === 'cancelled';
+  };
+
+  const canCancelInvoice = (invoice: Invoice) => {
+    return invoice.status !== 'cancelled';
   };
 
   const getStatusColor = (status: string) => {
@@ -207,11 +283,35 @@ const Invoices: React.FC = () => {
             <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
               <div className="flex items-center justify-between">
                 <div>
+                  <p className="text-xs font-medium text-gray-600">Brouillons</p>
+                  <p className="text-lg font-bold text-gray-600">{stats.draft}</p>
+                </div>
+                <div className="p-2 bg-gray-100 rounded-full">
+                  <FileText className="w-4 h-4 text-gray-600" />
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-medium text-gray-600">Envoyées</p>
+                  <p className="text-lg font-bold text-blue-600">{stats.sent}</p>
+                </div>
+                <div className="p-2 bg-blue-100 rounded-full">
+                  <Users className="w-4 h-4 text-blue-600" />
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+              <div className="flex items-center justify-between">
+                <div>
                   <p className="text-xs font-medium text-gray-600">Valeur totale</p>
                   <p className="text-lg font-bold text-gray-900">{formatCurrency(stats.totalValue)}</p>
                 </div>
-                <div className="p-2 bg-purple-100 rounded-full">
-                  <Users className="w-4 h-4 text-purple-600" />
+                <div className="p-2 bg-green-100 rounded-full">
+                  <CheckCircle className="w-4 h-4 text-green-600" />
                 </div>
               </div>
             </div>
@@ -221,22 +321,21 @@ const Invoices: React.FC = () => {
         {/* Filters */}
         <div className="px-6">
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+            <div className="flex flex-col sm:flex-row gap-4">
+              <div className="flex-1 relative">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                 <input
                   type="text"
-                  placeholder="Rechercher par numéro, client..."
+                  placeholder="Rechercher par numéro, nom ou société..."
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 />
               </div>
-
               <select
+                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
-                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               >
                 <option value="all">Tous les statuts</option>
                 <option value="draft">Brouillon</option>
@@ -250,74 +349,55 @@ const Invoices: React.FC = () => {
         </div>
       </div>
 
-      {/* Scrollable Table Section */}
-      <div className="flex-1 px-6 overflow-hidden mt-4">
-        <div className="h-full bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden flex flex-col">
-          {/* Fixed Table Header */}
-          <div className="flex-none">
-            <table className="min-w-full divide-y divide-gray-200">
+      {/* Scrollable Content */}
+      <div className="flex-1 overflow-auto">
+        <div className="px-6 pb-6">
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+            <table className="w-full">
               <thead className="bg-gray-50">
                 <tr>
-                  <th scope="col" className="sticky top-0 px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-32 bg-gray-50">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Numéro
                   </th>
-                  <th scope="col" className="sticky top-0 px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-64 bg-gray-50">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Client
                   </th>
-                  <th scope="col" className="sticky top-0 px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-40 bg-gray-50">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Date
                   </th>
-                  <th scope="col" className="sticky top-0 px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-32 bg-gray-50">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Statut
                   </th>
-                  <th scope="col" className="sticky top-0 px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-40 bg-gray-50">
-                    Total
+                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Montant
                   </th>
-                  <th scope="col" className="sticky top-0 px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-32 bg-gray-50">
+                  <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Actions
                   </th>
                 </tr>
               </thead>
-            </table>
-          </div>
-
-          {/* Scrollable Table Body */}
-          <div className="flex-1 overflow-auto">
-            <table className="min-w-full divide-y divide-gray-200">
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredInvoices.map((invoice) => (
-                  <tr key={invoice.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-6 py-4 whitespace-nowrap w-32">
-                      <div className="text-sm font-medium text-gray-900 text-center">
-                        #{invoice.number}
-                      </div>
+                  <tr key={invoice.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900">{invoice.number}</div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap w-64">
-                      <div className="flex flex-col items-center text-center">
-                        <div className="text-sm text-gray-900">
-                          {invoice.customer.name}
-                        </div>
-                        {invoice.customer.company && (
-                          <div className="text-sm text-gray-500 truncate max-w-xs">
-                            {invoice.customer.company}
-                          </div>
-                        )}
-                      </div>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900">{invoice.customer.name}</div>
+                      <div className="text-sm text-gray-500">{invoice.customer.company}</div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 w-40 text-center">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {formatDate(invoice.date)}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap w-32">
-                      <div className="flex justify-center">
-                        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(invoice.status)}`}>
-                          {getStatusLabel(invoice.status)}
-                        </span>
-                      </div>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(invoice.status)}`}>
+                        {getStatusLabel(invoice.status)}
+                      </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 w-40 text-center">
                       {formatCurrency(invoice.total)}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap w-32">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 w-48 text-center">
                       <div className="flex justify-center space-x-2">
                         <button
                           onClick={() => handleEditInvoice(invoice)}
@@ -333,13 +413,33 @@ const Invoices: React.FC = () => {
                         >
                           <Eye className="w-4 h-4" />
                         </button>
-                        <button
-                          onClick={() => handleDeleteInvoice(invoice.id)}
-                          className="text-red-600 hover:text-red-900"
-                          title="Supprimer"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {canCreateDeliveryNote(invoice) && (
+                          <button
+                            onClick={() => handleCreateDeliveryNote(invoice.id)}
+                            className="text-purple-600 hover:text-purple-900"
+                            title="Créer bon de livraison"
+                          >
+                            <Truck className="w-4 h-4" />
+                          </button>
+                        )}
+                        {canCreateReturnNote(invoice) && (
+                          <button
+                            onClick={() => handleCreateReturnNote(invoice.id)}
+                            className="text-orange-600 hover:text-orange-900"
+                            title="Créer bon de retour"
+                          >
+                            <RefreshCw className="w-4 h-4" />
+                          </button>
+                        )}
+                        {canCancelInvoice(invoice) && (
+                          <button
+                            onClick={() => handleCancelInvoice(invoice.id)}
+                            className="text-red-600 hover:text-red-900"
+                            title="Annuler la facture"
+                          >
+                            <RotateCcw className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -494,13 +594,31 @@ const Invoices: React.FC = () => {
               <div className="mt-8 flex justify-end space-x-3">
                 <button
                   onClick={() => handleEditInvoice(selectedInvoice)}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                 >
                   Modifier
                 </button>
+                {canCreateDeliveryNote(selectedInvoice) && (
+                  <button
+                    onClick={() => handleCreateDeliveryNote(selectedInvoice.id)}
+                    className="flex items-center space-x-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                  >
+                    <Truck className="w-4 h-4" />
+                    <span>Bon de livraison</span>
+                  </button>
+                )}
+                {canCreateReturnNote(selectedInvoice) && (
+                  <button
+                    onClick={() => handleCreateReturnNote(selectedInvoice.id)}
+                    className="flex items-center space-x-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors"
+                  >
+                    <RefreshCw className="w-4 h-4" />
+                    <span>Bon de retour</span>
+                  </button>
+                )}
                 <button
                   onClick={() => setSelectedInvoice(null)}
-                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
                 >
                   Fermer
                 </button>

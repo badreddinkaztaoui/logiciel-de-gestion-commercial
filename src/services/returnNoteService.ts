@@ -78,29 +78,123 @@ class ReturnNoteService {
     try {
       await this.ensureAuthenticated();
 
-      // Get next return note number
-      const number = await documentNumberingService.generateNumber('RETURN');
-
-      const { data, error } = await supabase
-        .from(this.TABLE_NAME)
-        .insert([{
-          ...returnNote,
-          number,
-          status: returnNote.status || 'draft',
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        }])
-        .select()
-        .single();
-
-      if (error) {
-        console.error('Error creating return note:', error);
-        throw error;
+      // Only generate number if not already provided
+      let number = returnNote.number;
+      if (!number) {
+        try {
+          number = await documentNumberingService.generateNumber('RETURN');
+        } catch (error) {
+          console.error('Error generating return note number:', error);
+          // Fallback number generation
+          const timestamp = Date.now().toString().slice(-6);
+          number = `BR-${timestamp}`;
+        }
       }
 
-      return this.mapDatabaseToReturnNote(data);
+      // Retry logic for ID conflicts
+      let maxRetries = 3;
+      let lastError;
+
+      for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+          // Always generate a fresh UUID for each create attempt to avoid duplicates
+          const id = crypto.randomUUID();
+
+          const insertData = {
+            ...returnNote,
+            id,
+            number,
+            status: returnNote.status || 'draft',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          };
+
+          const { data, error } = await supabase
+            .from(this.TABLE_NAME)
+            .insert([insertData])
+            .select()
+            .single();
+
+          if (error) {
+            // If it's a duplicate key error, retry with a new ID
+            if (error.code === '23505' && attempt < maxRetries - 1) {
+              console.log(`Duplicate key error on attempt ${attempt + 1}, retrying...`);
+              lastError = error;
+              continue;
+            }
+            throw error;
+          }
+
+          return this.mapDatabaseToReturnNote(data);
+        } catch (error) {
+          lastError = error;
+          if (attempt === maxRetries - 1) {
+            throw error;
+          }
+        }
+      }
+
+      throw lastError;
     } catch (error) {
       console.error('Error creating return note:', error);
+      throw error;
+    }
+  }
+
+  async createFromInvoice(invoiceId: string, returnReason?: string): Promise<ReturnNote> {
+    try {
+      // Import invoice service to get the conversion data
+      const { invoiceService } = await import('./invoiceService');
+      const returnNoteData = await invoiceService.convertToReturnNote(invoiceId, returnReason);
+
+      return await this.createReturnNote(returnNoteData);
+    } catch (error) {
+      console.error('Error creating return note from invoice:', error);
+      throw error;
+    }
+  }
+
+  async createFromDeliveryNote(deliveryNoteId: string, returnReason?: string): Promise<ReturnNote> {
+    try {
+      // Import delivery note service to get the delivery data
+      const { deliveryNoteService } = await import('./deliveryNoteService');
+      const deliveryNote = await deliveryNoteService.getDeliveryNote(deliveryNoteId);
+
+      if (!deliveryNote) {
+        throw new Error('Delivery note not found');
+      }
+
+      if (deliveryNote.status !== 'delivered') {
+        throw new Error('Only delivered items can be returned');
+      }
+
+      // Convert delivery note items to return note items
+      const returnItems = deliveryNote.items.map((item: any) => ({
+        id: crypto.randomUUID(),
+        productId: item.productId,
+        description: item.description,
+        quantity: item.delivered || item.quantity,
+        condition: 'new' as const,
+        reason: returnReason || 'Customer return',
+        refundAmount: item.total || 0
+      }));
+
+      const returnNoteData = {
+        id: crypto.randomUUID(),
+        delivery_note_id: deliveryNote.id,
+        invoice_id: deliveryNote.invoice_id,
+        customer_id: deliveryNote.customer_id,
+        customer_data: deliveryNote.customer_data,
+        date: new Date().toISOString().split('T')[0],
+        status: 'draft' as const,
+        items: returnItems,
+        reason: returnReason || 'Customer return',
+        notes: `Bon de retour généré à partir du bon de livraison ${deliveryNote.number}`
+      };
+
+      return await this.createReturnNote(returnNoteData);
+    } catch (error) {
+      console.error('Error creating return note from delivery note:', error);
       throw error;
     }
   }
@@ -198,6 +292,35 @@ class ReturnNoteService {
     } catch (error) {
       console.error('Error cancelling return note:', error);
       throw error;
+    }
+  }
+
+  async getReturnNoteStats() {
+    try {
+      const returnNotes = await this.getReturnNotes();
+
+      return {
+        total: returnNotes.length,
+        draft: returnNotes.filter(r => r.status === 'draft').length,
+        processed: returnNotes.filter(r => r.status === 'processed').length,
+        cancelled: returnNotes.filter(r => r.status === 'cancelled').length,
+        totalItems: returnNotes.reduce((sum, r) => sum + (r.items?.length || 0), 0),
+        totalRefundValue: returnNotes
+          .filter(r => r.status === 'processed')
+          .reduce((sum, r) => sum + (r.items?.reduce((itemSum, item) => itemSum + (item.refundAmount || 0), 0) || 0), 0),
+        pendingReturns: returnNotes.filter(r => r.status === 'draft').length
+      };
+    } catch (error) {
+      console.error('Error getting return note stats:', error);
+      return {
+        total: 0,
+        draft: 0,
+        processed: 0,
+        cancelled: 0,
+        totalItems: 0,
+        totalRefundValue: 0,
+        pendingReturns: 0
+      };
     }
   }
 }

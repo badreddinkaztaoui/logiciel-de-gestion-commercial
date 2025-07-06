@@ -7,7 +7,6 @@ import {
   RotateCcw,
   Menu,
   Settings,
-  Download,
   User,
   Package,
   Building,
@@ -19,6 +18,7 @@ import {
 import { useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 import { wooCommerceService } from '../services/woocommerce';
+import SyncStatus from './SyncStatus';
 
 const Layout: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -100,7 +100,6 @@ const Layout: React.FC = () => {
   const currentPage = getCurrentPage();
 
   const menuItems = [
-    { id: 'dashboard', label: 'Tableau de bord', icon: LayoutDashboard, path: '/dashboard' },
     {
       id: 'orders',
       label: 'Commandes',
@@ -156,11 +155,15 @@ const Layout: React.FC = () => {
           </div>
 
           <div className="flex items-center space-x-4">
-            <button className="hidden sm:flex items-center space-x-2 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+            {/* <button className="hidden sm:flex items-center space-x-2 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
               <Download className="w-4 h-4" />
               <span>Exporter</span>
-            </button>
-
+            </button> */}
+            <SyncStatus
+              isConnected={syncStatus.isConnected}
+              isSyncing={syncStatus.isSyncing}
+              lastSyncTime={syncStatus.lastSyncTime}
+            />
             <div className="flex items-center space-x-3">
               <div className="flex items-center space-x-2 p-2 rounded-lg">
                 <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">

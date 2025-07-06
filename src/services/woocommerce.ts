@@ -90,6 +90,7 @@ class WooCommerceService {
   private taxRatesCache: Map<string, number> = new Map();
   private taxClassesCache: WooCommerceTaxClass[] = [];
   private productsCache: Map<number, WooCommerceProduct> = new Map();
+  private syncInProgress: boolean = false;
 
   private getAuthHeader(): string {
     const consumerKey = import.meta.env.VITE_WC_CONSUMER_KEY;
@@ -994,6 +995,14 @@ class WooCommerceService {
 
   async performSync(): Promise<void> {
     try {
+      // Prevent concurrent syncs
+      if (this.syncInProgress) {
+        console.log('Sync already in progress, skipping...');
+        return;
+      }
+
+      this.syncInProgress = true;
+
       const params: any = {
         per_page: 100,
         orderby: 'date',
@@ -1013,13 +1022,24 @@ class WooCommerceService {
       if (orders && orders.length > 0) {
         const { mergedOrders, newOrdersCount } = await orderService.mergeOrders(orders);
 
-        // Update invoices and sales journals for synced orders
-        for (const order of orders) {
-          try {
-            await invoiceService.syncWithWooCommerce(order.id, order.status);
-            await salesJournalService.updateJournalForOrder(order.id);
-          } catch (error) {
-            console.error(`Error syncing documents for order ${order.id}:`, error);
+        // Process orders in smaller batches to avoid overwhelming the database
+        const batchSize = 5; // Reduced batch size to minimize conflicts
+        for (let i = 0; i < orders.length; i += batchSize) {
+          const batch = orders.slice(i, i + batchSize);
+
+          // Process batch with proper error handling
+          for (const order of batch) {
+            try {
+              await this.processOrderSafely(order);
+            } catch (error) {
+              console.error(`Error processing order ${order.id}:`, error);
+              // Continue with next order even if one fails
+            }
+          }
+
+          // Add delay between batches to reduce database load
+          if (i + batchSize < orders.length) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
           }
         }
 
@@ -1032,6 +1052,41 @@ class WooCommerceService {
     } catch (error) {
       console.error('WooCommerce sync failed:', error);
       throw error;
+    } finally {
+      this.syncInProgress = false;
+    }
+  }
+
+  private async processOrderSafely(order: any): Promise<void> {
+    const maxRetries = 3;
+    let retryCount = 0;
+
+    while (retryCount < maxRetries) {
+      try {
+        // Sync invoice first
+        await invoiceService.syncWithWooCommerce(order.id, order.status);
+
+        // Add small delay to prevent race conditions
+        await new Promise(resolve => setTimeout(resolve, 200));
+
+        // Then update sales journal
+        await salesJournalService.updateJournalForOrder(order.id);
+
+        return; // Success, exit retry loop
+      } catch (error: any) {
+        retryCount++;
+
+        // Check if this is a duplicate key error that we can retry
+        if (error?.code === '23505' && retryCount < maxRetries) {
+          const delay = Math.min(500 * Math.pow(2, retryCount), 5000);
+          console.log(`Retrying order ${order.id} processing (attempt ${retryCount + 1}) after ${delay}ms`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+
+        // If we've exhausted retries or it's not a retryable error, throw it
+        throw error;
+      }
     }
   }
 

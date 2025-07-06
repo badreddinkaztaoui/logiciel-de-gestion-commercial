@@ -59,17 +59,26 @@ class DeliveryNoteService {
 
   async createDeliveryNote(note: DeliveryNote): Promise<DeliveryNote> {
     try {
-      const userId = await this.ensureAuthenticated();
 
       if (!note.number) {
-        note.number = await documentNumberingService.generateNumber('DELIVERY');
+        try {
+          note.number = await documentNumberingService.generateNumber('DELIVERY');
+        } catch (error) {
+          console.error('Error generating delivery note number:', error);
+          // Fallback number generation
+          const timestamp = Date.now().toString().slice(-6);
+          note.number = `BL-${timestamp}`;
+        }
       }
+
+      // Separate orderId from the database data
+      const { orderId, ...dbData } = note;
 
       const { data, error } = await supabase
         .from(this.TABLE_NAME)
         .insert({
-          ...note,
-          user_id: userId,
+          ...dbData,
+          id: dbData.id || crypto.randomUUID(),
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         })
@@ -81,14 +90,30 @@ class DeliveryNoteService {
         throw error;
       }
 
+      // Add orderId back to the returned data for WooCommerce integration
+      const result = { ...data, orderId } as DeliveryNote;
+
       // Update WooCommerce order if applicable
-      if (note.orderId && note.status === 'delivered') {
-        await this.updateWooCommerceOrder(note);
+      if (orderId && result.status === 'delivered') {
+        await this.updateWooCommerceOrder(result);
       }
 
-      return data;
+      return result;
     } catch (error) {
       console.error('Error creating delivery note:', error);
+      throw error;
+    }
+  }
+
+  async createFromInvoice(invoiceId: string): Promise<DeliveryNote> {
+    try {
+      // Import invoice service to get the conversion data
+      const { invoiceService } = await import('./invoiceService');
+      const deliveryNoteData = await invoiceService.convertToDeliveryNote(invoiceId);
+
+      return await this.createDeliveryNote(deliveryNoteData);
+    } catch (error) {
+      console.error('Error creating delivery note from invoice:', error);
       throw error;
     }
   }
@@ -97,10 +122,13 @@ class DeliveryNoteService {
     try {
       await this.ensureAuthenticated();
 
+      // Separate orderId from the database data
+      const { orderId, ...dbData } = note;
+
       const { data, error } = await supabase
         .from(this.TABLE_NAME)
         .update({
-          ...note,
+          ...dbData,
           updated_at: new Date().toISOString()
         })
         .eq('id', id)
@@ -112,12 +140,15 @@ class DeliveryNoteService {
         throw error;
       }
 
+      // Add orderId back to the returned data for WooCommerce integration
+      const result = { ...data, orderId } as DeliveryNote;
+
       // Update WooCommerce order if applicable
-      if (note.orderId && note.status === 'delivered') {
-        await this.updateWooCommerceOrder(note);
+      if (orderId && result.status === 'delivered') {
+        await this.updateWooCommerceOrder(result);
       }
 
-      return data;
+      return result;
     } catch (error) {
       console.error('Error updating delivery note:', error);
       throw error;
@@ -232,6 +263,33 @@ Articles livrés: ${note.items.reduce((sum, item) => sum + (item.delivered || 0)
     } catch (error) {
       console.error('Error updating WooCommerce order:', error);
       throw error;
+    }
+  }
+
+  async getDeliveryNoteStats() {
+    try {
+      const deliveryNotes = await this.getDeliveryNotes();
+
+      return {
+        total: deliveryNotes.length,
+        draft: deliveryNotes.filter(d => d.status === 'draft').length,
+        inTransit: deliveryNotes.filter(d => d.status === 'in_transit').length,
+        delivered: deliveryNotes.filter(d => d.status === 'delivered').length,
+        cancelled: deliveryNotes.filter(d => d.status === 'cancelled').length,
+        totalItems: deliveryNotes.reduce((sum, d) => sum + (d.items?.length || 0), 0),
+        pendingDeliveries: deliveryNotes.filter(d => ['draft', 'in_transit'].includes(d.status)).length
+      };
+    } catch (error) {
+      console.error('Error getting delivery note stats:', error);
+      return {
+        total: 0,
+        draft: 0,
+        inTransit: 0,
+        delivered: 0,
+        cancelled: 0,
+        totalItems: 0,
+        pendingDeliveries: 0
+      };
     }
   }
 

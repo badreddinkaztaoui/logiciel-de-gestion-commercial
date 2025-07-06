@@ -129,16 +129,69 @@ class SalesJournalService {
   }
 
   async saveSalesJournal(journal: SalesJournal): Promise<SalesJournal> {
+    const maxRetries = 3;
+    let retryCount = 0;
+
+    while (retryCount < maxRetries) {
+      try {
+        return await this.saveSalesJournalWithRetry(journal);
+      } catch (error: any) {
+        // Check if this is a duplicate key error on the date constraint
+        if (error?.code === '23505' && (
+          error?.message?.includes('unique_sales_journal_date') ||
+          error?.message?.includes('sales_journal_date_key')
+        )) {
+          retryCount++;
+          if (retryCount >= maxRetries) {
+            console.error(`Max retries exceeded for saving sales journal for date ${journal.date}`);
+            throw new Error(`Failed to save sales journal after ${maxRetries} attempts`);
+          }
+
+          // Wait with exponential backoff
+          const delay = Math.min(200 * Math.pow(2, retryCount), 2000);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          console.log(`Retrying sales journal save for date ${journal.date} (attempt ${retryCount + 1})`);
+          continue;
+        }
+
+        // If it's not a duplicate key error, throw it
+        throw error;
+      }
+    }
+
+    throw new Error(`Failed to save sales journal after ${maxRetries} attempts`);
+  }
+
+  private async saveSalesJournalWithRetry(journal: SalesJournal): Promise<SalesJournal> {
     try {
       const journalData = await this.mapSalesJournalToDatabase(journal);
 
       if (!journal.id) {
         journalData.id = crypto.randomUUID();
+      }
 
-        // Generate journal number if not provided
-        if (!journal.number) {
-          journalData.number = await this.generateJournalNumber(journalData.id);
+      // Generate journal number if not provided
+      if (!journal.number) {
+        try {
+          // Check if a number already exists for this journal ID
+          const existingNumber = await documentNumberingService.getNumberByJournalId(journalData.id);
+          if (existingNumber) {
+            journalData.number = existingNumber;
+          } else {
+            journalData.number = await documentNumberingService.generateNumber(
+              'SALES_JOURNAL',
+              undefined,
+              journalData.id
+            );
+          }
+        } catch (error) {
+          console.error('Error handling journal number in save:', error);
+          // If there's an error generating a number, use a fallback
+          const timestamp = Date.now().toString().slice(-6);
+          journalData.number = `JV-${timestamp}`;
         }
+      } else {
+        journalData.number = journal.number;
       }
 
       const { data, error } = await supabase
@@ -148,13 +201,11 @@ class SalesJournalService {
         .single();
 
       if (error) {
-        console.error('Error saving sales journal:', error);
         throw error;
       }
 
       return this.mapDatabaseToSalesJournal(data);
     } catch (error) {
-      console.error('Error saving sales journal:', error);
       throw error;
     }
   }
@@ -205,6 +256,9 @@ class SalesJournalService {
         inputDate: date,
         formattedDate
       });
+
+      // Check if a journal already exists for this date
+      const existingJournal = await this.getSalesJournalByDate(formattedDate);
 
       const ordersForDate = await orderService.getOrdersForDate(formattedDate);
 
@@ -293,16 +347,38 @@ class SalesJournalService {
         .filter(item => item.base > 0)
         .sort((a, b) => a.rate - b.rate);
 
+      // Determine journal ID and number safely
+      let journalId = existingJournal?.id || crypto.randomUUID();
+      let journalNumber = existingJournal?.number;
+
+      // Only generate a new number if no existing number is found
+      if (!journalNumber) {
+        try {
+          // Check if a number already exists for this journal ID
+          const existingNumber = await documentNumberingService.getNumberByJournalId(journalId);
+          if (existingNumber) {
+            journalNumber = existingNumber;
+          } else {
+            journalNumber = await documentNumberingService.generateNumber(
+              'SALES_JOURNAL',
+              undefined,
+              journalId
+            );
+          }
+        } catch (error) {
+          console.error('Error handling journal number:', error);
+          // If there's an error generating a number, use a fallback
+          const timestamp = Date.now().toString().slice(-6);
+          journalNumber = `JV-${timestamp}`;
+        }
+      }
+
       const salesJournal: SalesJournal = {
-        id: crypto.randomUUID(),
-        number: await documentNumberingService.generateNumber(
-          'SALES_JOURNAL',
-          undefined,
-          crypto.randomUUID()
-        ),
+        id: journalId,
+        number: journalNumber,
         date: date,
-        createdAt: new Date().toISOString(),
-        status: 'draft',
+        createdAt: existingJournal?.createdAt || new Date().toISOString(),
+        status: existingJournal?.status || 'draft',
         ordersIncluded: orderIds,
         lines: journalLines,
         totals: {
@@ -448,25 +524,42 @@ class SalesJournalService {
       const { data: journals, error } = await supabase
         .from(this.TABLE_NAME)
         .select('*')
-        .contains('ordersIncluded', [orderId]);
+        .contains('orders_included', [orderId]);
 
       if (error) {
         console.error('Error finding journals for order:', error);
         return;
       }
 
-      // Regenerate each affected journal
-      for (const journal of journals) {
-        const date = new Date(journal.date).toLocaleDateString('fr-FR');
-        const { journal: updatedJournal } = await this.generateSalesJournal(date);
+      // Update each affected journal
+      for (const journalData of journals) {
+        try {
+          const existingJournal = this.mapDatabaseToSalesJournal(journalData);
+          const date = new Date(journalData.date).toLocaleDateString('fr-FR');
 
-        if (updatedJournal) {
-          await this.saveSalesJournal(updatedJournal);
+          // Regenerate the journal data for this date
+          const { journal: updatedJournalData, ordersFound } = await this.generateSalesJournal(date);
+
+          if (updatedJournalData && ordersFound) {
+            // Preserve the existing journal ID and number to avoid duplicates
+            const updatedJournal: SalesJournal = {
+              ...updatedJournalData,
+              id: existingJournal.id,
+              number: existingJournal.number,
+              status: existingJournal.status, // Preserve existing status
+              createdAt: existingJournal.createdAt // Preserve original creation date
+            };
+
+            await this.saveSalesJournal(updatedJournal);
+          }
+        } catch (journalError) {
+          console.error(`Error updating individual journal for order ${orderId}:`, journalError);
+          // Continue with other journals even if one fails
         }
       }
     } catch (error) {
       console.error('Error updating journal for order:', error);
-      throw error;
+      // Don't throw error to avoid breaking the sync process
     }
   }
 }

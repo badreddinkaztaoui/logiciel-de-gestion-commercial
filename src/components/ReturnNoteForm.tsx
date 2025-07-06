@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import {
   Plus,
   Trash2,
@@ -18,17 +19,23 @@ import { documentNumberingService } from '../services/documentNumberingService';
 
 interface ReturnNoteFormProps {
   editingNote?: ReturnNote | null;
+  sourceInvoice?: Invoice | null;
   onSave: (note: ReturnNote) => void;
   onCancel: () => void;
 }
 
 const ReturnNoteForm: React.FC<ReturnNoteFormProps> = ({
   editingNote,
+  sourceInvoice,
   onSave,
   onCancel
 }) => {
+  const location = useLocation();
+  const stateSourceInvoice = location.state?.sourceInvoice;
+  const effectiveSourceInvoice = sourceInvoice || stateSourceInvoice;
+
   const [formData, setFormData] = useState<Partial<ReturnNote>>({
-    id: '',
+    id: undefined,
     number: '',
     date: new Date().toISOString().split('T')[0],
     status: 'draft',
@@ -54,7 +61,7 @@ const ReturnNoteForm: React.FC<ReturnNoteFormProps> = ({
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [editingNote?.id, effectiveSourceInvoice?.id]);
 
   const loadData = async () => {
     try {
@@ -76,29 +83,106 @@ const ReturnNoteForm: React.FC<ReturnNoteFormProps> = ({
 
       if (editingNote) {
         setFormData(editingNote);
+      } else if (effectiveSourceInvoice) {
+        await initializeFromInvoice(effectiveSourceInvoice);
       } else {
-        const number = await documentNumberingService.generateNumber('RETURN');
+        // Initialize new return note form
+        try {
+          const number = await documentNumberingService.generateNumber('RETURN');
 
-        setFormData(prev => ({
-          ...prev,
-          id: crypto.randomUUID(),
-          number,
-          date: new Date().toISOString().split('T')[0],
-          items: [{
-            id: crypto.randomUUID(),
-            description: '',
-            quantity: 1,
-            condition: 'new',
+          setFormData({
+            id: undefined,
+            number,
+            date: new Date().toISOString().split('T')[0],
+            status: 'draft',
+            customer_id: undefined,
+            customer_data: undefined,
+            invoice_id: undefined,
+            delivery_note_id: undefined,
+            items: [{
+              id: crypto.randomUUID(),
+              description: '',
+              quantity: 1,
+              condition: 'new',
+              reason: '',
+              refundAmount: 0
+            }],
             reason: '',
-            refundAmount: 0
-          }]
-        }));
+            notes: '',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          });
+        } catch (error) {
+          console.error('Error generating return note number:', error);
+          // Fallback initialization
+          setFormData({
+            id: undefined,
+            number: `BR-${Date.now().toString().slice(-6)}`,
+            date: new Date().toISOString().split('T')[0],
+            status: 'draft',
+            customer_id: undefined,
+            customer_data: undefined,
+            invoice_id: undefined,
+            delivery_note_id: undefined,
+            items: [{
+              id: crypto.randomUUID(),
+              description: '',
+              quantity: 1,
+              condition: 'new',
+              reason: '',
+              refundAmount: 0
+            }],
+            reason: '',
+            notes: '',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          });
+        }
       }
     } catch (error) {
       console.error('Error loading data:', error);
       setErrors({ general: 'Error initializing form. Please try again.' });
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const initializeFromInvoice = async (invoice: Invoice) => {
+    try {
+      const number = await documentNumberingService.generateNumber('RETURN');
+
+      // Convert invoice items to return note items
+      const returnItems = invoice.items.map(item => ({
+        id: crypto.randomUUID(),
+        productId: item.productId,
+        description: item.description,
+        quantity: item.quantity,
+        condition: 'new' as const,
+        reason: 'Retour depuis facture',
+        refundAmount: item.total
+      }));
+
+      setFormData({
+        id: undefined,
+        number,
+        date: new Date().toISOString().split('T')[0],
+        status: 'draft',
+        customer_id: undefined,
+        customer_data: {
+          name: invoice.customer.name,
+          email: invoice.customer.email,
+          company: invoice.customer.company
+        },
+        invoice_id: invoice.id,
+        items: returnItems,
+        reason: `Retour des articles de la facture ${invoice.number}`,
+        notes: `Bon de retour généré à partir de la facture ${invoice.number}`,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error('Error initializing from invoice:', error);
+      throw error;
     }
   };
 
@@ -129,7 +213,7 @@ const ReturnNoteForm: React.FC<ReturnNoteFormProps> = ({
       setFormData(prev => ({
         ...prev,
         invoice_id: invoice.id,
-        customer_id: invoice.customer.email,
+        customer_id: undefined,
         customer_data: {
           name: invoice.customer.name,
           email: invoice.customer.email,
@@ -199,7 +283,8 @@ const ReturnNoteForm: React.FC<ReturnNoteFormProps> = ({
   const validateForm = (): boolean => {
     const newErrors: {[key: string]: string} = {};
 
-    if (!formData.customer_id) {
+    // Require either customer_id OR customer_data
+    if (!formData.customer_id && !formData.customer_data) {
       newErrors.customer = 'Veuillez sélectionner un client';
     }
 
@@ -231,6 +316,11 @@ const ReturnNoteForm: React.FC<ReturnNoteFormProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    // Prevent double submission
+    if (isSubmitting) {
+      return;
+    }
+
     if (!validateForm()) {
       return;
     }
@@ -238,12 +328,16 @@ const ReturnNoteForm: React.FC<ReturnNoteFormProps> = ({
     setIsSubmitting(true);
 
     try {
-      const note: ReturnNote = {
-        id: formData.id!,
-        number: formData.number!,
+      // For new notes, use undefined ID to let service generate it
+      // For editing, use the existing ID
+      const noteId = editingNote ? editingNote.id : undefined;
+
+      const note: Partial<ReturnNote> = {
+        id: noteId,
+        number: formData.number!, // Use the number from form (pre-generated)
         date: formData.date!,
         status: formData.status!,
-        customer_id: formData.customer_id!,
+        customer_id: formData.customer_id,
         customer_data: formData.customer_data!,
         invoice_id: formData.invoice_id,
         delivery_note_id: formData.delivery_note_id,
@@ -258,15 +352,17 @@ const ReturnNoteForm: React.FC<ReturnNoteFormProps> = ({
         updated_at: new Date().toISOString()
       };
 
+      let savedNote: ReturnNote;
       if (editingNote) {
-        await returnNoteService.updateReturnNote(note.id, note);
+        savedNote = await returnNoteService.updateReturnNote(editingNote.id, note);
       } else {
-        await returnNoteService.createReturnNote(note);
+        savedNote = await returnNoteService.createReturnNote(note);
       }
-      onSave(note);
+
+      onSave(savedNote);
     } catch (error) {
       console.error('Error saving note:', error);
-      alert('Erreur lors de la sauvegarde du bon de retour');
+      alert('Erreur lors de la sauvegarde du bon de retour: ' + (error as Error).message);
     } finally {
       setIsSubmitting(false);
     }
@@ -275,7 +371,7 @@ const ReturnNoteForm: React.FC<ReturnNoteFormProps> = ({
   const handleCustomerClear = () => {
     setFormData(prev => ({
       ...prev,
-      customer_id: '',
+      customer_id: undefined,
       customer_data: undefined
     }));
   };
@@ -315,30 +411,33 @@ const ReturnNoteForm: React.FC<ReturnNoteFormProps> = ({
             >
               Annuler
             </button>
-            <button
-              onClick={handleSubmit}
-              disabled={isSubmitting}
-              className="flex items-center space-x-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
-            >
-              {isSubmitting ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                  <span>Sauvegarde...</span>
-                </>
-              ) : (
-                <>
-                  <Save className="w-4 h-4" />
-                  <span>Sauvegarder</span>
-                </>
-              )}
-            </button>
+            <div>
+              <button
+                type="submit"
+                form="return-note-form"
+                disabled={isSubmitting}
+                className="flex items-center space-x-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+              >
+                {isSubmitting ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    <span>Sauvegarde...</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    <span>Sauvegarder</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
       {/* Content */}
       <div className="flex-1 overflow-auto p-6">
-        <form onSubmit={handleSubmit} className="max-w-6xl mx-auto space-y-6">
+        <form id="return-note-form" onSubmit={handleSubmit} className="max-w-6xl mx-auto space-y-6">
           {errors.general && (
             <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-start space-x-3">
               <AlertTriangle className="w-5 h-5 text-red-500 mt-0.5 flex-shrink-0" />

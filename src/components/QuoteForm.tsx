@@ -1,66 +1,47 @@
 import React, { useState, useEffect } from 'react';
-import {
-  Plus,
-  Trash2,
-  Save,
-  ArrowLeft,
-  User,
-  Building,
-  MapPin,
-  Mail,
-  Search,
-  AlertTriangle,
-  CheckCircle
-} from 'lucide-react';
-import { Quote, WooCommerceOrder, Customer as BaseCustomer } from '../types';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { Loader2 } from 'lucide-react';
+import { Quote, WooCommerceOrder, Customer } from '../types';
 import { quoteService } from '../services/quoteService';
 import { customerService } from '../services/customerService';
-import { WooCommerceProduct } from '../services/woocommerce';
-import { formatCurrency } from '../utils/formatters';
+import { wooCommerceService } from '../services/woocommerce';
 import ProductSearch from './ProductSearch';
+import type { ProductWithQuantity } from './ProductSearch';
 
-interface Customer extends BaseCustomer {
-  name: string;
-  email: string;
-  company?: string;
-  address?: string;
-  city?: string;
+import QuoteHeader from './quote/QuoteHeader';
+import QuoteGeneralInfo from './quote/QuoteGeneralInfo';
+import QuoteCustomerInfo from './quote/QuoteCustomerInfo';
+import QuoteItems from './quote/QuoteItems';
+import QuoteTotals from './quote/QuoteTotals';
+import QuoteNotes from './quote/QuoteNotes';
+
+interface LocationState {
+  sourceOrder?: WooCommerceOrder;
 }
 
-interface ProductWithQuantity extends WooCommerceProduct {
-  quantity: number;
-  taxRate: number;
-}
-
+// Extended item type with additional fields for display
 interface ExtendedQuoteItem {
   id: string;
   description: string;
   quantity: number;
   unitPrice: number;
   total: number;
-  sku: string;
-  product_id: string | number;
-  taxRate: number;
+  unitPriceHT?: number;
+  totalHT?: number;
+  taxRate?: number;
+  taxAmount?: number;
+  productId?: number;
+  sku?: string;
 }
 
-type ExtendedQuote = Omit<Quote, 'items'> & {
-  items: ExtendedQuoteItem[];
-};
+const QuoteForm: React.FC = () => {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const locationState = location.state as LocationState;
 
-interface QuoteFormProps {
-  editingQuote?: ExtendedQuote | null;
-  sourceOrder?: WooCommerceOrder | null;
-  onSave: (quote: ExtendedQuote) => void;
-  onCancel: () => void;
-}
-
-const QuoteForm: React.FC<QuoteFormProps> = ({
-  editingQuote,
-  sourceOrder,
-  onSave,
-  onCancel
-}) => {
-  const [formData, setFormData] = useState<Partial<ExtendedQuote>>({
+  const [formData, setFormData] = useState<Partial<Quote & { items: ExtendedQuoteItem[] }>>({
+    id: '',
     number: '',
     date: new Date().toISOString().split('T')[0],
     validUntil: '',
@@ -68,6 +49,7 @@ const QuoteForm: React.FC<QuoteFormProps> = ({
     customer: {
       name: '',
       email: '',
+      company: '',
       address: '',
       city: ''
     },
@@ -79,531 +61,611 @@ const QuoteForm: React.FC<QuoteFormProps> = ({
   });
 
   const [customers, setCustomers] = useState<Customer[]>([]);
-  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
+  const [customerSearchTerm, setCustomerSearchTerm] = useState('');
   const [errors, setErrors] = useState<{[key: string]: string}>({});
   const [showProductSearch, setShowProductSearch] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [_, setIsInitialized] = useState(false);
+  const [isLoadingProducts, setIsLoadingProducts] = useState(false);
+  const [productLoadingStatus, setProductLoadingStatus] = useState<string>('');
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    loadData();
+    const loadCustomers = async () => {
+      try {
+        const savedCustomers = await customerService.getCustomers();
+        if (savedCustomers) {
+          setCustomers(savedCustomers as unknown as Customer[]);
+        } else {
+          setCustomers([]);
+        }
+      } catch (error) {
+        console.error('Error loading customers:', error);
+        setCustomers([]);
+      }
+    };
+
+    loadCustomers();
   }, []);
 
-  const loadData = async () => {
-    try {
-      const savedCustomers = await customerService.getCustomers() as Customer[];
-      setCustomers(savedCustomers);
+  // Initialize form data
+  useEffect(() => {
+    const initializeForm = async () => {
+      setLoading(true);
 
-      if (editingQuote) {
-        setFormData(editingQuote);
-        if (editingQuote.customer) {
-          const customer = savedCustomers.find(c => c.email === editingQuote.customer.email);
-          setSelectedCustomer(customer || null);
+      try {
+        if (id) {
+          const quote = await quoteService.getQuote(id);
+          if (quote) {
+            // Convert basic items to extended items
+            const extendedItems: ExtendedQuoteItem[] = quote.items.map(item => ({
+              id: crypto.randomUUID(),
+              description: item.description,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              total: item.total,
+              unitPriceHT: item.unitPrice, // Default to same as unitPrice for display
+              totalHT: item.total,
+              taxRate: 0,
+              taxAmount: 0
+            }));
+
+            setFormData({
+              ...quote,
+              items: extendedItems
+            });
+          } else {
+            console.error('Quote not found');
+            navigate('/quotes');
+            return;
+          }
+        } else if (locationState?.sourceOrder) {
+          await initializeFromWooCommerceOrder(locationState.sourceOrder);
+        } else {
+          await initializeBlankQuote();
         }
-      } else if (sourceOrder) {
-        await initializeFromOrder(sourceOrder);
+
+        setIsInitialized(true);
+      } catch (error) {
+        console.error('Error initializing form:', error);
+        navigate('/quotes');
+      } finally {
+        setLoading(false);
       }
-    } catch (error) {
-      console.error('Error loading data:', error);
-    }
+    };
+
+    initializeForm();
+  }, [id, locationState, navigate]);
+
+  const initializeBlankQuote = async () => {
+    const validUntil = new Date();
+    validUntil.setDate(validUntil.getDate() + 30);
+
+    const blankFormData = {
+      id: crypto.randomUUID(),
+      number: '',
+      date: new Date().toISOString().split('T')[0],
+      validUntil: validUntil.toISOString().split('T')[0],
+      status: 'draft' as const,
+      customer: {
+        name: '',
+        email: '',
+        company: '',
+        address: '',
+        city: ''
+      },
+      items: [],
+      subtotal: 0,
+      tax: 0,
+      total: 0,
+      notes: ''
+    };
+
+    setFormData(blankFormData);
   };
 
-  const initializeFromOrder = async (order: WooCommerceOrder) => {
+  const initializeFromWooCommerceOrder = async (order: WooCommerceOrder) => {
+    setIsLoadingProducts(true);
+    setProductLoadingStatus('Initialisation...');
+
     try {
-      const expiryDate = new Date();
-      expiryDate.setDate(expiryDate.getDate() + 30);
+      await wooCommerceService.initializeTaxData();
+      const processedItems = await processOrderItems(order);
+      const totals = calculateTotalsFromItems(processedItems);
 
-      const items = (order.line_items || []).map(item => ({
+      const validUntil = new Date();
+      validUntil.setDate(validUntil.getDate() + 30);
+
+      const quoteData = {
         id: crypto.randomUUID(),
-        description: item.name,
-        quantity: Number(item.quantity),
-        unitPrice: Number(item.price),
-        total: Number(item.quantity) * Number(item.price),
-        sku: (item as any).sku || '',
-        product_id: item.product_id,
-        taxRate: 20 // Default tax rate for order items
-      }));
-
-      const subtotal = items.reduce((sum, item) => sum + item.total, 0);
-      const tax = subtotal * 0.2;
-      const total = subtotal + tax;
-
-      const billing = order.billing || {};
-
-      setFormData({
+        number: '',
+        orderId: order.id,
         date: new Date().toISOString().split('T')[0],
-        validUntil: expiryDate.toISOString().split('T')[0],
-        status: 'draft',
-        customer: {
-          name: `${billing.first_name || ''} ${billing.last_name || ''}`.trim(),
-          email: billing.email || '',
-          company: billing.company || '',
-          address: billing.address_1 || '',
-          city: billing.city || ''
-        },
-        items,
-        subtotal,
-        tax,
-        total,
-        notes: `Devis créé à partir de la commande #${order.number}`
-      });
+        validUntil: validUntil.toISOString().split('T')[0],
+        status: 'draft' as const,
+        customer: extractCustomerFromOrder(order),
+        items: processedItems,
+        ...totals,
+        notes: `Devis généré à partir de la commande WooCommerce #${order.number || order.id}`
+      };
+
+      setFormData(quoteData);
     } catch (error) {
       console.error('Error initializing from order:', error);
+      await initializeBlankQuote();
+    } finally {
+      setIsLoadingProducts(false);
+      setProductLoadingStatus('');
     }
   };
 
-  const handleCustomerSelect = (customer: Customer) => {
-    setSelectedCustomer(customer);
+  const processOrderItems = async (order: WooCommerceOrder) => {
+    const items = [];
+    for (const item of order.line_items || []) {
+      setProductLoadingStatus(`Traitement du produit: ${item.name}`);
+
+      const processedItem = await processOrderItem(item);
+      items.push(processedItem);
+    }
+    return items;
+  };
+
+  const processOrderItem = async (item: any): Promise<ExtendedQuoteItem> => {
+    let currentPriceTTC = 0;
+    let taxRate = 0;
+
+    try {
+      if (item.product_id) {
+        const freshProduct = await wooCommerceService.getProduct(item.product_id);
+        if (freshProduct?.price) {
+          currentPriceTTC = parseFloat(freshProduct.price);
+          if (freshProduct.tax_class !== undefined) {
+            taxRate = wooCommerceService.getTaxRateForClass(freshProduct.tax_class);
+          }
+        } else {
+          currentPriceTTC = parseFloat(item.price || '0');
+        }
+      } else {
+        currentPriceTTC = parseFloat(item.price || '0');
+      }
+    } catch (error) {
+      currentPriceTTC = parseFloat(item.price || '0');
+    }
+
+    const quantity = parseInt(item.quantity?.toString() || '1');
+    const totalTTC = round2(currentPriceTTC * quantity);
+
+    // For 0% TVA, HT = TTC
+    if (taxRate === 0) {
+      return {
+        id: crypto.randomUUID(),
+        productId: item.product_id,
+        description: item.name || '',
+        quantity,
+        unitPrice: currentPriceTTC,
+        unitPriceHT: currentPriceTTC, // Same as TTC for 0% TVA
+        total: totalTTC,
+        totalHT: totalTTC, // Same as TTC for 0% TVA
+        taxRate: 0,
+        taxAmount: 0
+      };
+    } else {
+      // Calculate HT for products with TVA
+      const taxRate100 = taxRate / 100;
+      const unitPriceHT = round2(currentPriceTTC / (1 + taxRate100));
+      const totalHT = round2(unitPriceHT * quantity);
+      const taxAmount = round2(totalHT * taxRate100);
+
+      return {
+        id: crypto.randomUUID(),
+        productId: item.product_id,
+        description: item.name || '',
+        quantity,
+        unitPrice: currentPriceTTC,
+        unitPriceHT: unitPriceHT,
+        total: totalTTC,
+        totalHT: totalHT,
+        taxRate,
+        taxAmount
+      };
+    }
+  };
+
+  const calculateTotalsFromItems = (items: ExtendedQuoteItem[]) => {
+    // Group items by tax rate
+    const itemsByTaxRate: { [key: number]: ExtendedQuoteItem[] } = {};
+    items.forEach(item => {
+      const rate = item.taxRate || 0;
+      if (!itemsByTaxRate[rate]) {
+        itemsByTaxRate[rate] = [];
+      }
+      itemsByTaxRate[rate].push(item);
+    });
+
+    let subtotal = 0;
+    let totalTax = 0;
+
+    // Calculate subtotal and tax for each tax rate group
+    Object.entries(itemsByTaxRate).forEach(([taxRate, groupItems]) => {
+      const rate = parseFloat(taxRate);
+      const groupSubtotal = groupItems.reduce((sum, item) => {
+        if (rate > 0) {
+          // For items with tax, calculate HT price
+          const taxRate100 = rate / 100;
+          const itemHT = round2(item.total / (1 + taxRate100));
+          return sum + itemHT;
+        } else {
+          // For items without tax, use total as is
+          return sum + item.total;
+        }
+      }, 0);
+
+      subtotal += groupSubtotal;
+      if (rate > 0) {
+        totalTax += round2(groupSubtotal * (rate / 100));
+      }
+    });
+
+    subtotal = round2(subtotal);
+    totalTax = round2(totalTax);
+    const total = round2(subtotal + totalTax);
+
+    return {
+      subtotal,
+      tax: totalTax,
+      total
+    };
+  };
+
+  const extractCustomerFromOrder = (order: WooCommerceOrder) => {
+    const billing = order.billing || {};
+    return {
+      name: `${billing.first_name || ''} ${billing.last_name || ''}`.trim() || 'Client',
+      email: billing.email || '',
+      company: billing.company || '',
+      address: `${billing.address_1 || ''}${billing.address_2 ? ` ${billing.address_2}` : ''}`,
+      city: billing.city || ''
+    };
+  };
+
+  const round2 = (num: number): number => {
+    return Math.round((num + Number.EPSILON) * 100) / 100;
+  };
+
+  const handleCancel = () => {
+    navigate('/quotes');
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!validateForm()) {
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      // Convert extended items back to basic items for the API
+      const basicItems = (formData.items || []).map(item => ({
+        description: item.description,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        total: item.total
+      }));
+
+      const quoteData: Partial<Quote> = {
+        ...formData,
+        items: basicItems
+      };
+
+      if (id) {
+        await quoteService.updateQuote(id, quoteData);
+      } else {
+        await quoteService.createQuote(quoteData);
+      }
+
+      navigate('/quotes');
+    } catch (error) {
+      console.error('Error saving quote:', error);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const validateForm = (): boolean => {
+    const newErrors: {[key: string]: string} = {};
+
+    if (!formData.customer?.name?.trim()) {
+      newErrors.customerName = 'Le nom du client est requis';
+    }
+
+    // Only validate items if they exist
+    const items = formData.items || [];
+    if (items.length > 0) {
+      items.forEach((item, index) => {
+        if (!item.description.trim()) {
+          newErrors[`item_${index}_description`] = 'Description requise';
+        }
+        if (item.quantity <= 0) {
+          newErrors[`item_${index}_quantity`] = 'Quantité invalide';
+        }
+        if (item.unitPrice < 0) {
+          newErrors[`item_${index}_price`] = 'Prix invalide';
+        }
+      });
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleFieldChange = (field: string, value: any) => {
     setFormData(prev => ({
       ...prev,
-      customer: {
-        name: customer.name,
-        email: customer.email,
-        company: customer.company,
-        address: customer.address || '',
-        city: customer.city || ''
-      }
+      [field]: value
     }));
   };
 
+  const handleCustomerChange = (field: string, value: string) => {
+    setFormData(prev => ({
+      ...prev,
+      customer: {
+        ...prev.customer!,
+        [field]: value || ''
+      }
+    }));
+
+    if (selectedCustomerId) {
+      setSelectedCustomerId('');
+    }
+  };
+
+  const handleCustomerSelect = (customerId: string) => {
+    setSelectedCustomerId(customerId);
+
+    const customer = customers.find(c => c.id === customerId);
+    if (customer) {
+      const fullName = [
+        customer.first_name || '',
+        customer.last_name || ''
+      ].filter(Boolean).join(' ');
+
+      setFormData(prev => ({
+        ...prev,
+        customerId: customer.id,
+        customer: {
+          name: fullName || 'Client',
+          email: customer.email || '',
+          company: customer.company || '',
+          address: customer.address || '',
+          city: customer.city || ''
+        }
+      }));
+    }
+  };
+
   const handleItemChange = (index: number, field: string, value: any) => {
-    const newItems = [...(formData.items || [])] as ExtendedQuoteItem[];
+    const newItems = [...(formData.items || [])];
     newItems[index] = {
       ...newItems[index],
       [field]: value
     };
 
     if (field === 'quantity' || field === 'unitPrice') {
-      const quantity = field === 'quantity' ? value : newItems[index].quantity;
-      const unitPrice = field === 'unitPrice' ? value : newItems[index].unitPrice;
-      newItems[index].total = quantity * unitPrice;
+      const item = newItems[index];
+      const totalTTC = round2(item.quantity * item.unitPrice);
+
+      if ((item.taxRate || 0) === 0) {
+        // For 0% TVA, HT = TTC
+        newItems[index] = {
+          ...item,
+          total: totalTTC,
+          unitPriceHT: item.unitPrice,
+          totalHT: totalTTC,
+          taxAmount: 0
+        };
+      } else {
+        // Calculate HT for products with TVA
+        const taxRate100 = (item.taxRate || 0) / 100;
+        const unitPriceHT = round2(item.unitPrice / (1 + taxRate100));
+        const totalHT = round2(unitPriceHT * item.quantity);
+        const taxAmount = round2(totalHT * taxRate100);
+
+        newItems[index] = {
+          ...item,
+          total: totalTTC,
+          unitPriceHT: unitPriceHT,
+          totalHT: totalHT,
+          taxAmount: taxAmount
+        };
+      }
     }
 
-    const subtotal = newItems.reduce((sum, item) => sum + item.total, 0);
-    const tax = newItems.reduce((sum, item) => sum + (item.total * (item.taxRate / 100)), 0);
-    const total = subtotal + tax;
-
-    setFormData(prev => ({
-      ...prev,
-      items: newItems,
-      subtotal,
-      tax,
-      total
-    }));
-  };
-
-  const addItem = () => {
-    const newItem: ExtendedQuoteItem = {
-      id: crypto.randomUUID(),
-      description: '',
-      quantity: 1,
-      unitPrice: 0,
-      total: 0,
-      sku: '',
-      product_id: '',
-      taxRate: 20
-    };
-
-    setFormData(prev => ({
-      ...prev,
-      items: [...(prev.items || []), newItem]
-    }));
-  };
-
-  const removeItem = (index: number) => {
     setFormData(prev => {
-      const items = (prev.items?.filter((_, i) => i !== index) || []) as ExtendedQuoteItem[];
-      const subtotal = items.reduce((sum, item) => sum + item.total, 0);
-      const tax = items.reduce((sum, item) => sum + (item.total * (item.taxRate / 100)), 0);
-      const total = subtotal + tax;
+      const totals = calculateTotalsFromItems(newItems);
+      return {
+        ...prev,
+        items: newItems,
+        ...totals
+      };
+    });
+  };
+
+  const handleAddItem = () => {
+    setFormData(prev => ({
+      ...prev,
+      items: [
+        ...(prev.items || []),
+        {
+          id: crypto.randomUUID(),
+          description: '',
+          quantity: 1,
+          unitPrice: 0,
+          unitPriceHT: 0,
+          total: 0,
+          totalHT: 0,
+          taxRate: 0,
+          taxAmount: 0
+        }
+      ]
+    }));
+  };
+
+  const handleRemoveItem = (index: number) => {
+    setFormData(prev => {
+      const currentItems = (prev.items || []) as ExtendedQuoteItem[];
+      const updatedItems = currentItems.filter((_, i) => i !== index);
+      const totals = calculateTotalsFromItems(updatedItems);
 
       return {
         ...prev,
-        items,
-        subtotal,
-        tax,
-        total
+        items: updatedItems,
+        ...totals
       };
     });
   };
 
   const handleProductSelect = (product: ProductWithQuantity) => {
-    const priceHT = parseFloat(product.price) / (1 + product.taxRate / 100);
+    const priceTTC = round2(parseFloat(product.price));
+    const totalTTC = round2(priceTTC * product.quantity);
+
+    let unitPriceHT = priceTTC;
+    let totalHT = totalTTC;
+    let taxAmount = 0;
+
+    if (product.taxRate > 0) {
+      const taxRate100 = product.taxRate / 100;
+      unitPriceHT = round2(priceTTC / (1 + taxRate100));
+      totalHT = round2(unitPriceHT * product.quantity);
+      taxAmount = round2(totalHT * taxRate100);
+    }
 
     const newItem: ExtendedQuoteItem = {
       id: crypto.randomUUID(),
       description: product.name,
       quantity: product.quantity,
-      unitPrice: priceHT,
-      total: priceHT * product.quantity,
-      sku: product.sku || '',
-      product_id: product.id,
-      taxRate: product.taxRate
+      unitPrice: priceTTC,
+      unitPriceHT: unitPriceHT,
+      total: totalTTC,
+      totalHT: totalHT,
+      productId: product.id,
+      sku: product.sku,
+      taxRate: product.taxRate || 0,
+      taxAmount: taxAmount
     };
 
     setFormData(prev => {
-      const items = [...(prev.items || []), newItem];
-      const subtotal = items.reduce((sum, item) => sum + item.total, 0);
-      const tax = items.reduce((sum, item) => sum + (item.total * (item.taxRate / 100)), 0);
-      const total = subtotal + tax;
+      const updatedItems = [...(prev.items || []), newItem];
+      const totals = calculateTotalsFromItems(updatedItems);
 
       return {
         ...prev,
-        items,
-        subtotal,
-        tax,
-        total
+        items: updatedItems,
+        ...totals
       };
     });
-
-    setShowProductSearch(false);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-    setErrors({});
-
-    try {
-      const newErrors: {[key: string]: string} = {};
-      if (!formData.customer) newErrors.customer = 'Veuillez sélectionner un client';
-      if (!formData.items?.length) newErrors.items = 'Veuillez ajouter au moins un article';
-      if (!formData.date) newErrors.date = 'La date est requise';
-      if (!formData.validUntil) newErrors.validUntil = 'La date d\'expiration est requise';
-
-      if (Object.keys(newErrors).length > 0) {
-        setErrors(newErrors);
-        setIsSubmitting(false);
-        return;
-      }
-
-      // Only include the required properties for the API
-      const quoteData = {
-        ...formData,
-        items: formData.items?.map(item => ({
-          description: item.description,
-          quantity: item.quantity,
-          unitPrice: item.unitPrice,
-          total: item.total
-        }))
-      };
-
-      const savedQuote = editingQuote
-        ? await quoteService.updateQuote(editingQuote.id, quoteData)
-        : await quoteService.createQuote(quoteData);
-
-      // Transform the saved quote back to ExtendedQuote format
-      const extendedQuote: ExtendedQuote = {
-        ...savedQuote,
-        items: savedQuote.items.map(item => ({
-          id: crypto.randomUUID(),
-          description: item.description,
-          quantity: item.quantity,
-          unitPrice: item.unitPrice,
-          total: item.total,
-          sku: '',
-          product_id: '',
-          taxRate: 20
-        }))
-      };
-
-      onSave(extendedQuote);
-    } catch (error) {
-      console.error('Error saving quote:', error);
-      setErrors({ submit: 'Une erreur est survenue lors de l\'enregistrement du devis' });
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const renderCustomerDetails = () => {
-    if (!formData.customer) return null;
-
+  if (loading || isLoadingProducts) {
     return (
-      <div className="bg-gray-50 p-4 rounded-lg">
-        <h3 className="text-lg font-medium text-gray-900 mb-4">Détails du client</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <p className="flex items-center text-sm text-gray-600">
-              <User className="w-4 h-4 mr-2" />
-              {formData.customer.name}
-            </p>
-            {formData.customer.company && (
-              <p className="flex items-center text-sm text-gray-600 mt-2">
-                <Building className="w-4 h-4 mr-2" />
-                {formData.customer.company}
-              </p>
-            )}
-            <p className="flex items-center text-sm text-gray-600 mt-2">
-              <Mail className="w-4 h-4 mr-2" />
-              {formData.customer.email}
-            </p>
-          </div>
-          <div>
-            <p className="flex items-center text-sm text-gray-600">
-              <MapPin className="w-4 h-4 mr-2" />
-              {formData.customer.address}
-            </p>
-            <p className="text-sm text-gray-600 ml-6">
-              {formData.customer.city}
-            </p>
+      <div className="h-full flex flex-col">
+        <div className="flex-1 px-6 py-4">
+          <div className="flex items-center justify-center h-full">
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8 max-w-md w-full">
+              <div className="text-center">
+                <Loader2 className="w-12 h-12 text-blue-500 animate-spin mx-auto mb-4" />
+                <h2 className="text-xl font-semibold text-gray-900 mb-2">
+                  {isLoadingProducts ? 'Récupération des prix actuels' : 'Chargement...'}
+                </h2>
+                {productLoadingStatus && (
+                  <p className="text-gray-600">{productLoadingStatus}</p>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       </div>
     );
+  }
+
+  // Create customer with the correct interface for components that expect postal_code and country
+  const customerForComponents = {
+    name: formData.customer?.name || '',
+    email: formData.customer?.email || '',
+    company: formData.customer?.company || '',
+    address: formData.customer?.address || '',
+    city: formData.customer?.city || '',
+    postal_code: '', // Not used in Quote but needed for component interface
+    country: 'Maroc' // Default value for component interface
   };
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden pb-20">
-      {/* Header */}
-      <div className="flex-none p-6 bg-white border-b">
-        <div className="flex items-center justify-between">
-          <div>
-            <button
-              onClick={onCancel}
-              className="flex items-center space-x-2 text-gray-600 hover:text-gray-900 mb-4 transition-colors"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              <span>Retour aux devis</span>
-            </button>
-            <h1 className="text-3xl font-bold text-gray-900">
-              {editingQuote ? `Modifier le devis ${editingQuote.number}` : 'Nouveau devis'}
-            </h1>
-            {sourceOrder && (
-              <p className="text-gray-600 mt-1">
-                À partir de la commande #{sourceOrder.number}
-              </p>
-            )}
-          </div>
-
-          <div className="flex items-center space-x-3">
-            <button
-              onClick={onCancel}
-              className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              Annuler
-            </button>
-            <button
-              onClick={handleSubmit}
-              disabled={isSubmitting}
-              className="flex items-center space-x-2 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
-            >
-              {isSubmitting ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  <span>Sauvegarde...</span>
-                </>
-              ) : (
-                <>
-                  <Save className="w-4 h-4" />
-                  <span>Sauvegarder</span>
-                </>
-              )}
-            </button>
-          </div>
-        </div>
+    <div className="h-full flex flex-col">
+      {/* Fixed Header Section */}
+      <div className="flex-none bg-white px-6 py-4 border-b">
+        <QuoteHeader
+          id={id}
+          isSubmitting={isSubmitting}
+          sourceOrder={locationState?.sourceOrder}
+          onCancel={handleCancel}
+          onSubmit={handleSubmit}
+        />
       </div>
 
-      {/* Scrollable Content */}
-      <div className="flex-1 overflow-auto p-6">
-        <form onSubmit={handleSubmit} className="max-w-7xl mx-auto space-y-6">
-          {/* Basic Information */}
+      {/* Scrollable Content Section */}
+      <div className="flex-1 px-6 py-4 overflow-auto">
+        <form onSubmit={handleSubmit} className="space-y-6">
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-6">Informations générales</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Date</label>
-                <input
-                  type="date"
-                  value={formData.date}
-                  onChange={e => setFormData(prev => ({ ...prev, date: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  required
-                />
-                {errors.date && <p className="mt-1 text-sm text-red-600">{errors.date}</p>}
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Date d'expiration</label>
-                <input
-                  type="date"
-                  value={formData.validUntil}
-                  onChange={e => setFormData(prev => ({ ...prev, validUntil: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  required
-                />
-                {errors.validUntil && <p className="mt-1 text-sm text-red-600">{errors.validUntil}</p>}
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Statut</label>
-                <select
-                  value={formData.status}
-                  onChange={e => setFormData(prev => ({ ...prev, status: e.target.value as Quote['status'] }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                >
-                  <option value="draft">Brouillon</option>
-                  <option value="sent">Envoyé</option>
-                  <option value="accepted">Accepté</option>
-                  <option value="rejected">Rejeté</option>
-                  <option value="expired">Expiré</option>
-                </select>
-              </div>
-            </div>
-          </div>
-
-          {/* Customer Selection */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-6">Client</h2>
-            <div className="space-y-4">
-              <div>
-                <select
-                  value={selectedCustomer?.id || ''}
-                  onChange={e => {
-                    const customer = customers.find(c => c.id === e.target.value);
-                    if (customer) handleCustomerSelect(customer);
-                  }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                >
-                  <option value="">Sélectionner un client</option>
-                  {customers.map(customer => (
-                    <option key={customer.id} value={customer.id}>
-                      {customer.name} {customer.company ? `(${customer.company})` : ''}
-                    </option>
-                  ))}
-                </select>
-                {errors.customer && <p className="mt-1 text-sm text-red-600">{errors.customer}</p>}
-              </div>
-              {renderCustomerDetails()}
-            </div>
-          </div>
-
-          {/* Items */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-lg font-semibold text-gray-900">Articles</h2>
-              <div className="flex items-center space-x-3">
-                <button
-                  type="button"
-                  onClick={() => setShowProductSearch(true)}
-                  className="flex items-center space-x-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
-                >
-                  <Search className="w-4 h-4" />
-                  <span>Rechercher un produit</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={addItem}
-                  className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Ajouter un article</span>
-                </button>
-              </div>
-            </div>
-
-            {errors.items && (
-              <div className="mb-4 p-4 bg-red-50 rounded-lg flex items-center text-red-700">
-                <AlertTriangle className="w-5 h-5 mr-2" />
-                <p className="text-sm">{errors.items}</p>
-              </div>
-            )}
-
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b-2 border-gray-200">
-                    <th className="text-left p-2">Description</th>
-                    <th className="text-right p-2">Quantité</th>
-                    <th className="text-right p-2">Prix unitaire</th>
-                    <th className="text-right p-2">Total HT</th>
-                    <th className="text-right p-2">TVA</th>
-                    <th className="text-right p-2">Total TTC</th>
-                    <th className="w-10"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {formData.items?.map((item, index) => (
-                    <tr key={item.id} className="border-b border-gray-200">
-                      <td className="p-2">
-                        <input
-                          type="text"
-                          value={item.description}
-                          onChange={e => handleItemChange(index, 'description', e.target.value)}
-                          className="w-full px-2 py-1 border border-gray-300 rounded"
-                          placeholder="Description"
-                        />
-                      </td>
-                      <td className="p-2">
-                        <input
-                          type="number"
-                          min="1"
-                          value={item.quantity}
-                          onChange={e => handleItemChange(index, 'quantity', parseInt(e.target.value))}
-                          className="w-20 px-2 py-1 border border-gray-300 rounded text-right"
-                        />
-                      </td>
-                      <td className="p-2">
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={item.unitPrice}
-                          onChange={e => handleItemChange(index, 'unitPrice', parseFloat(e.target.value))}
-                          className="w-32 px-2 py-1 border border-gray-300 rounded text-right"
-                        />
-                      </td>
-                      <td className="p-2 text-right">{formatCurrency(item.total)}</td>
-                      <td className="p-2 text-right">{formatCurrency(item.total * (item.taxRate / 100))}</td>
-                      <td className="p-2 text-right">{formatCurrency(item.total * (1 + item.taxRate / 100))}</td>
-                      <td className="p-2">
-                        <button
-                          type="button"
-                          onClick={() => removeItem(index)}
-                          className="text-red-600 hover:text-red-800 p-1"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot className="bg-gray-50">
-                  <tr>
-                    <td colSpan={3} className="p-2 text-right font-medium">Total HT</td>
-                    <td className="p-2 text-right font-medium">{formatCurrency(formData.subtotal || 0)}</td>
-                    <td colSpan={3}></td>
-                  </tr>
-                  <tr>
-                    <td colSpan={3} className="p-2 text-right font-medium">TVA</td>
-                    <td className="p-2 text-right font-medium">{formatCurrency(formData.tax || 0)}</td>
-                    <td colSpan={3}></td>
-                  </tr>
-                  <tr>
-                    <td colSpan={3} className="p-2 text-right font-medium">Total TTC</td>
-                    <td className="p-2 text-right font-bold">{formatCurrency(formData.total || 0)}</td>
-                    <td colSpan={3}></td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          </div>
-
-          {/* Notes */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Notes</h2>
-            <textarea
-              value={formData.notes}
-              onChange={e => setFormData(prev => ({ ...prev, notes: e.target.value }))}
-              rows={4}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              placeholder="Notes ou conditions particulières..."
+            <QuoteGeneralInfo
+              formData={formData}
+              onFieldChange={handleFieldChange}
             />
           </div>
 
-          {errors.submit && (
-            <div className="p-4 bg-red-50 rounded-lg flex items-center text-red-700">
-              <AlertTriangle className="w-5 h-5 mr-2" />
-              <p className="text-sm">{errors.submit}</p>
-            </div>
-          )}
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <QuoteCustomerInfo
+              customer={customerForComponents}
+              customers={customers}
+              customerSearchTerm={customerSearchTerm}
+              selectedCustomerId={selectedCustomerId}
+              errors={errors}
+              onCustomerChange={handleCustomerChange}
+              onCustomerSelect={handleCustomerSelect}
+              onSearchTermChange={setCustomerSearchTerm}
+              isEditMode={!!id}
+            />
+          </div>
+
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <QuoteItems
+              items={formData.items || []}
+              sourceOrder={locationState?.sourceOrder}
+              onItemChange={handleItemChange}
+              onAddItem={handleAddItem}
+              onRemoveItem={handleRemoveItem}
+              onShowProductSearch={() => setShowProductSearch(true)}
+              errors={errors}
+            />
+          </div>
+
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <QuoteTotals
+              subtotal={formData.subtotal || 0}
+              tax={formData.tax || 0}
+              total={formData.total || 0}
+              items={formData.items || []}
+              sourceOrder={locationState?.sourceOrder}
+            />
+          </div>
+
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <QuoteNotes
+              notes={formData.notes || ''}
+              onChange={(notes) => handleFieldChange('notes', notes)}
+            />
+          </div>
         </form>
       </div>
 

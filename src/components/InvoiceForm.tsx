@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
-import { Invoice, WooCommerceOrder, Customer } from '../types/index';
+import { Invoice, WooCommerceOrder, Customer, Quote } from '../types/index';
 import { invoiceService } from '../services/invoiceService';
 import { customerService } from '../services/customerService';
 import { wooCommerceService } from '../services/woocommerce';
@@ -17,6 +17,7 @@ import InvoiceNotes from './invoice/InvoiceNotes';
 
 interface LocationState {
   sourceOrder?: WooCommerceOrder;
+  sourceQuote?: Quote;
 }
 
 const InvoiceForm: React.FC = () => {
@@ -95,6 +96,8 @@ const InvoiceForm: React.FC = () => {
           }
         } else if (locationState?.sourceOrder) {
           await initializeFromWooCommerceOrder(locationState.sourceOrder);
+        } else if (locationState?.sourceQuote) {
+          await initializeFromQuote(locationState.sourceQuote);
         } else {
           await initializeBlankInvoice();
         }
@@ -530,6 +533,62 @@ const InvoiceForm: React.FC = () => {
         ...totals
       };
     });
+  };
+
+  const initializeFromQuote = async (quote: Quote) => {
+    setIsLoadingProducts(true);
+    setProductLoadingStatus('Initialisation à partir du devis...');
+
+    try {
+      // Convert quote items to invoice items format
+      const invoiceItems = quote.items.map(item => ({
+        id: crypto.randomUUID(),
+        description: item.description,
+        quantity: item.quantity,
+        unitPrice: item.unitPrice,
+        unitPriceHT: item.unitPrice, // For now, assuming prices are HT
+        total: item.total,
+        totalHT: item.total,
+        taxRate: 20, // Default tax rate
+        taxAmount: round2(item.total * 0.2),
+        sku: `ITEM-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+      }));
+
+      // Calculate totals using the same logic as for orders
+      const totals = calculateTotalsFromItems(invoiceItems);
+
+      // Generate due date (30 days from today)
+      const dueDate = new Date();
+      dueDate.setDate(dueDate.getDate() + 30);
+
+      const invoiceData = {
+        id: crypto.randomUUID(),
+        number: '',
+        date: new Date().toISOString().split('T')[0],
+        dueDate: dueDate.toISOString().split('T')[0],
+        status: 'draft' as const,
+        customer: {
+          name: quote.customer.name,
+          email: quote.customer.email,
+          company: quote.customer.company || '',
+          address: quote.customer.address,
+          city: quote.customer.city,
+          postal_code: '',
+          country: 'Maroc'
+        },
+        items: invoiceItems,
+        ...totals,
+        notes: `Facture générée à partir du devis ${quote.number}. ${quote.notes || ''}`.trim()
+      };
+
+      setFormData(invoiceData);
+    } catch (error) {
+      console.error('Error initializing from quote:', error);
+      await initializeBlankInvoice();
+    } finally {
+      setIsLoadingProducts(false);
+      setProductLoadingStatus('');
+    }
   };
 
   if (loading || isLoadingProducts) {
